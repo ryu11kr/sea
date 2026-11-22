@@ -71,12 +71,31 @@ function dedupeAndRank(list, q) {
  * @param {string} query
  * @returns {Promise<GeoResult[]>}
  */
+/**
+ * @param {Response} res
+ */
+async function readKakaoError(res) {
+  try {
+    const data = await res.json();
+    return data?.message || data?.msg || `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
+/**
+ * @param {string} kakaoKey
+ * @param {string} query
+ * @returns {Promise<{ results: GeoResult[], errors: string[] }>}
+ */
 async function kakaoSearch(kakaoKey, query) {
   const headers = { Authorization: `KakaoAK ${kakaoKey}` };
   const collected = /** @type {GeoResult[]} */ ([]);
+  const errors = /** @type {string[]} */ ([]);
 
+  // analyze_type 은 주소 검색 API 전용 — keyword API 에 넣으면 400 으로 실패할 수 있음
   const keyword = await fetch(
-    `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15&analyze_type=similar`,
+    `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15`,
     { headers }
   );
   if (keyword.ok) {
@@ -89,6 +108,8 @@ async function kakaoSearch(kakaoKey, query) {
         lon: Number(d.x),
       });
     }
+  } else {
+    errors.push(`keyword: ${await readKakaoError(keyword)}`);
   }
 
   const address = await fetch(
@@ -108,9 +129,11 @@ async function kakaoSearch(kakaoKey, query) {
         collected.push({ title, address: addr, lat, lon });
       }
     }
+  } else {
+    errors.push(`address: ${await readKakaoError(address)}`);
   }
 
-  return collected;
+  return { results: collected, errors };
 }
 
 /**
@@ -167,15 +190,20 @@ async function searchPlaces(q, kakaoKey) {
   const variants = buildSearchVariants(q);
   let provider = kakaoKey ? "kakao" : "nominatim";
   const merged = /** @type {GeoResult[]} */ ([]);
+  /** @type {string[]} */
+  const kakaoErrors = [];
 
   if (kakaoKey) {
     await Promise.all(
       variants.map(async (variant) => {
-        const part = await kakaoSearch(kakaoKey, variant);
+        const { results: part, errors } = await kakaoSearch(kakaoKey, variant);
         merged.push(...part);
+        if (errors.length) kakaoErrors.push(...errors);
       })
     );
-  } else {
+  }
+
+  if (!kakaoKey || merged.length === 0) {
     for (const variant of variants) {
       const part = await nominatimSearch(variant);
       merged.push(...part);
@@ -184,12 +212,14 @@ async function searchPlaces(q, kakaoKey) {
     if (merged.length === 0) {
       const photon = await photonSearch(q);
       merged.push(...photon);
-      if (photon.length) provider = "photon";
+      if (photon.length && !kakaoKey) provider = "photon";
     }
+    if (kakaoKey && merged.length > 0) provider = "kakao+fallback";
   }
 
   const results = dedupeAndRank(merged, q);
-  return { provider, results };
+  const uniqueErrors = [...new Set(kakaoErrors)].slice(0, 3);
+  return { provider, results, kakaoErrors: uniqueErrors.length ? uniqueErrors : undefined };
 }
 
 export default async function handler(req, res) {
@@ -206,8 +236,14 @@ export default async function handler(req, res) {
 
   try {
     if (q) {
-      const { provider, results } = await searchPlaces(q, kakaoKey);
-      res.status(200).json({ provider, results });
+      const { provider, results, kakaoErrors } = await searchPlaces(q, kakaoKey);
+      const body = { provider, results };
+      if (kakaoErrors?.length) body.kakaoErrors = kakaoErrors;
+      if (kakaoKey && results.length === 0) {
+        body.hint =
+          "카카오 키는 설정됐지만 결과가 없습니다. developers.kakao.com 앱의 REST API 키인지, 유료 API·할당량을 확인해 주세요.";
+      }
+      res.status(200).json(body);
       return;
     }
 
