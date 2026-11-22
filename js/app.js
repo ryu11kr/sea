@@ -344,10 +344,17 @@ function showDetailView(pointId) {
   loadDetailData(point);
 }
 
+function syncHomeIntro() {
+  const lede = $("#app-lede");
+  if (lede) lede.hidden = seaPoints.length > 0;
+}
+
 function renderPointList() {
   const empty = $("#point-empty");
   const list = $("#point-list");
   if (!empty || !list) return;
+
+  syncHomeIntro();
 
   if (seaPoints.length === 0) {
     empty.hidden = false;

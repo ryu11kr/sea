@@ -98,6 +98,10 @@ body.sea-app .sea-wrap > .app-name {
   }
 }
 
+.app-guide[hidden] {
+  display: none;
+}
+
 .app-guide {
   margin: 0 0 1.15rem;
   padding: 0.85rem 1rem;
