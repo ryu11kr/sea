@@ -79,7 +79,7 @@ export function startIncomingSharePolling(client, setStatus) {
     if (document.visibilityState !== "visible") return;
     try {
       const { data } = await client.auth.getSession();
-      const email = normalizeEmail(data.session?.user?.email || "");
+      const email = resolveSessionEmail(data.session?.user);
       if (!email) return;
       const incoming = document.querySelector("#sea-share-incoming");
       await refreshIncomingShareRequests(client, email, incoming, setStatus);
@@ -189,6 +189,23 @@ function normalizeEmail(email) {
   }
   return raw;
 }
+
+/** 구글 로그인 세션에서 받는 사람 이메일 (user.email 없을 때 metadata 보강) */
+export function resolveSessionEmail(user) {
+  if (!user) return "";
+  const candidates = [
+    user.email,
+    user.user_metadata?.email,
+    user.user_metadata?.email_address,
+  ];
+  for (const c of candidates) {
+    const n = normalizeEmail(c);
+    if (n) return n;
+  }
+  return "";
+}
+
+let pendingShareIncomingCount = 0;
 
 function apiBase() {
   return new URL("./api/", window.location.href).href;
@@ -506,6 +523,26 @@ function bindSharePopupOnce(client, userEmail, listEl, setStatus) {
  * @param {(text: string) => void} setStatus
  * @param {string | null} [preferRequestId]
  */
+/**
+ * @param {import("@supabase/supabase-js").SupabaseClient} client
+ * @param {import("@supabase/supabase-js").Session | null | undefined} session
+ * @param {HTMLElement | null} listEl
+ * @param {(text: string) => void} setStatus
+ */
+export async function refreshIncomingForSession(client, session, listEl, setStatus) {
+  let email = resolveSessionEmail(session?.user);
+  if (!email) {
+    try {
+      const { data: userData } = await client.auth.getUser();
+      email = resolveSessionEmail(userData.user);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!email) return;
+  await refreshIncomingShareRequests(client, email, listEl, setStatus);
+}
+
 export async function refreshIncomingShareRequests(
   client,
   userEmail,
@@ -519,15 +556,23 @@ export async function refreshIncomingShareRequests(
       listEl.hidden = true;
       listEl.replaceChildren();
     }
+    pendingShareIncomingCount = 0;
     return;
   }
 
-  const { data, error } = await client
+  const { data: sess } = await client.auth.getSession();
+  const userId = sess.session?.user?.id || null;
+
+  const { data: rawRows, error } = await client
     .from("sea_share_requests")
-    .select("id, from_email, created_at")
+    .select("id, from_email, created_at, to_email, from_user_id")
     .eq("status", "pending")
-    .eq("to_email", email)
     .order("created_at", { ascending: false });
+
+  const data = (rawRows || []).filter((row) => {
+    if (userId && row.from_user_id === userId) return false;
+    return normalizeEmail(row.to_email) === email;
+  });
 
   if (error) {
     if (isShareTableMissingError(error)) {
@@ -540,8 +585,17 @@ export async function refreshIncomingShareRequests(
       listEl.hidden = true;
       listEl.replaceChildren();
     }
+    pendingShareIncomingCount = 0;
+    syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null, undefined, 0);
     return;
   }
+
+  pendingShareIncomingCount = data.length;
+  syncSeaShareTeaserVisibility(
+    sess.session?.user ? { user: sess.session.user } : null,
+    undefined,
+    pendingShareIncomingCount
+  );
 
   if (listEl) {
     listEl.replaceChildren();
@@ -620,7 +674,7 @@ let busShareTeaserListenerBound = false;
  * @param {import("@supabase/supabase-js").Session | null | undefined} session
  * @param {number | undefined} stopCount
  */
-export function syncSeaShareTeaserVisibility(session, stopCount) {
+export function syncSeaShareTeaserVisibility(session, stopCount, pendingIncoming) {
   const teaser = document.querySelector("#sea-share-teaser");
   if (!teaser) return;
   const signedIn = Boolean(session?.user);
@@ -628,9 +682,17 @@ export function syncSeaShareTeaserVisibility(session, stopCount) {
     typeof stopCount === "number" && Number.isFinite(stopCount)
       ? stopCount
       : getLocalPointCount();
-  const show = signedIn && count > 0;
+  const pending =
+    typeof pendingIncoming === "number" && Number.isFinite(pendingIncoming)
+      ? pendingIncoming
+      : pendingShareIncomingCount;
+  const show = signedIn && (count > 0 || pending > 0);
   teaser.hidden = !show;
-  if (!show) teaser.open = false;
+  if (!show) {
+    teaser.open = false;
+    return;
+  }
+  if (pending > 0) teaser.open = true;
 }
 
 function bindSeaShareTeaserStopListener() {
@@ -685,7 +747,7 @@ export function initSeaShareUi(client, session, setStatus) {
         try {
           const { data: sess } = await client.auth.getSession();
           const userId = sess.session?.user?.id;
-          const fromEmail = normalizeEmail(sess.session?.user?.email || "");
+          const fromEmail = resolveSessionEmail(sess.session?.user);
           if (!userId || !fromEmail) {
             const e = new Error("login_required");
             e.code = "login_required";
@@ -723,12 +785,7 @@ export function initSeaShareUi(client, session, setStatus) {
     }
   }
 
-  void refreshIncomingShareRequests(
-    client,
-    session.user.email || "",
-    incomingEl,
-    setStatus
-  );
+  void refreshIncomingForSession(client, session, incomingEl, setStatus);
 
   const params = new URLSearchParams(window.location.search);
   if (params.get("share") === "pending" && incomingEl) {

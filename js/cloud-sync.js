@@ -10,7 +10,9 @@ import {
   authFetch,
   hideShareAcceptBusy,
   initSeaShareUi,
+  refreshIncomingForSession,
   refreshIncomingShareRequests,
+  resolveSessionEmail,
   showShareAcceptBusy,
   startIncomingSharePolling,
   stopIncomingSharePolling,
@@ -35,6 +37,8 @@ let cloudSyncRuntime = null;
 /** @type {import("@supabase/supabase-js").SupabaseClient | null} */
 let supabaseClient = null;
 let cloudSaveListenerBound = false;
+/** @type {((text: string) => void) | null} */
+let shareIncomingStatusCb = null;
 
 async function loadCloudSyncConfig() {
   const cfg = { ...DEFAULT_CLOUD_SYNC_CONFIG };
@@ -319,16 +323,18 @@ async function initGoogleAuthUi(client, cfg) {
         syncEl.hidden = false;
         syncEl.textContent = text;
       };
+      shareIncomingStatusCb = setShareStatus;
       initSeaShareUi(client, session, setShareStatus);
-      void refreshIncomingShareRequests(
+      void refreshIncomingForSession(
         client,
-        session.user.email || "",
+        session,
         document.querySelector("#sea-share-incoming"),
         setShareStatus
       );
       startIncomingSharePolling(client, setShareStatus);
     } else {
       stopIncomingSharePolling();
+      shareIncomingStatusCb = null;
       const shareTeaser = document.querySelector("#sea-share-teaser");
       const incomingEl = document.querySelector("#sea-share-incoming");
       if (shareTeaser) shareTeaser.hidden = true;
@@ -406,11 +412,38 @@ async function initGoogleAuthUi(client, cfg) {
     if (session?.user) renderSession(session).catch(() => {});
   });
 
+  let lastForegroundShareCheck = 0;
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !cfg.enabled) return;
-    client.auth.getSession().then(({ data }) => {
-      const userId = data.session?.user?.id;
+    const now = Date.now();
+    client.auth.getSession().then(({ data: sessionData }) => {
+      const userId = sessionData.session?.user?.id;
       if (userId) scheduleCloudPush(client, userId, 500);
+      if (!userId || now - lastForegroundShareCheck < 2500) return;
+      lastForegroundShareCheck = now;
+      const email = resolveSessionEmail(sessionData.session?.user);
+      const incoming = document.querySelector("#sea-share-incoming");
+      if (!incoming || !email) return;
+      refreshIncomingForSession(
+        client,
+        sessionData.session,
+        incoming,
+        shareIncomingStatusCb || (() => {})
+      ).catch(() => {});
+    });
+  });
+
+  window.addEventListener("pageshow", () => {
+    client.auth.getSession().then(({ data: sessionData }) => {
+      if (!sessionData.session?.user) return;
+      const incoming = document.querySelector("#sea-share-incoming");
+      if (!incoming) return;
+      refreshIncomingForSession(
+        client,
+        sessionData.session,
+        incoming,
+        shareIncomingStatusCb || (() => {})
+      ).catch(() => {});
     });
   });
 }
