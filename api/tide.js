@@ -305,6 +305,7 @@ function getField(row, ...names) {
 
 function rowLevel(row, mode = "auto") {
   const preKeys = [
+    "tdlvHgt",
     "preTideLevel",
     "predictTideLevel",
     "pre_tide_level",
@@ -313,6 +314,7 @@ function rowLevel(row, mode = "auto") {
     "preTideVal"
   ];
   const obsKeys = [
+    "bscTdlvHgt",
     "tideLevel",
     "obsTideLevel",
     "tide_level",
@@ -335,6 +337,7 @@ function rowLevel(row, mode = "auto") {
 function rowTime(row) {
   return getField(
     row,
+    "obsrvnDt",
     "obsTime",
     "obsDate",
     "obsDt",
