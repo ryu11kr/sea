@@ -3,11 +3,6 @@
 export const SEA_STORAGE_KEY = "sea-points-v1";
 export const CLOUD_MAX_POINTS = 40;
 
-export function getLocalPointCount() {
-  const state = readLocalPoints();
-  return Array.isArray(state.points) ? state.points.length : 0;
-}
-
 let uploadTimer = null;
 let syncInFlight = null;
 /** @type {((text: string) => void) | null} */
@@ -21,27 +16,33 @@ function setSyncStatus(text) {
   syncStatusCb?.(text || "");
 }
 
-function readLocalPoints() {
-  const getter = window.seaAppGetLocalPoints;
-  if (typeof getter === "function") {
-    return getter();
-  }
+export function generatePointId() {
   try {
-    const raw = localStorage.getItem(SEA_STORAGE_KEY);
-    const points = raw ? JSON.parse(raw) : [];
-    return { points: Array.isArray(points) ? points : [], updatedAt: null };
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
   } catch {
-    return { points: [], updatedAt: null };
+    /* ignore */
   }
+  return `sea-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-function applyLocal(points) {
-  const apply = window.seaAppApplyPoints;
-  if (typeof apply === "function") {
-    apply(points);
-    return;
+/**
+ * @param {unknown} points
+ */
+export function ensurePointIds(points) {
+  if (!Array.isArray(points)) return [];
+  /** @type {any[]} */
+  const out = [];
+  for (const p of points) {
+    if (!p || typeof p !== "object") continue;
+    out.push({
+      ...p,
+      id: p.id || generatePointId(),
+      updatedAt: p.updatedAt || new Date(0).toISOString(),
+    });
   }
-  localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(points));
+  return out;
 }
 
 function mergePoints(local, remote) {
@@ -65,6 +66,46 @@ function mergePoints(local, remote) {
   );
 }
 
+function readLocalPoints() {
+  /** @type {any[]} */
+  let storagePoints = [];
+  try {
+    const raw = localStorage.getItem(SEA_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) storagePoints = ensurePointIds(parsed);
+  } catch {
+    storagePoints = [];
+  }
+
+  const getter = window.seaAppGetLocalPoints;
+  if (typeof getter === "function") {
+    const mem = getter();
+    const memPoints = ensurePointIds(mem.points);
+    const merged = mergePoints(storagePoints, memPoints);
+    return {
+      points: merged,
+      updatedAt: mem.updatedAt ?? null,
+    };
+  }
+
+  return { points: storagePoints, updatedAt: null };
+}
+
+function applyLocal(points) {
+  const normalized = ensurePointIds(points);
+  const apply = window.seaAppApplyPoints;
+  if (typeof apply === "function") {
+    apply(normalized);
+    return;
+  }
+  localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(normalized));
+}
+
+export function getLocalPointCount() {
+  const state = readLocalPoints();
+  return Array.isArray(state.points) ? state.points.length : 0;
+}
+
 export async function pullAndMergeCloudState(client, userId) {
   const { data, error } = await client
     .from("sea_user_data")
@@ -75,10 +116,18 @@ export async function pullAndMergeCloudState(client, userId) {
   if (error) throw error;
 
   const localState = readLocalPoints();
-  const localPoints = localState.points || [];
-  const remotePoints = Array.isArray(data?.points) ? data.points : [];
-  const merged = mergePoints(localPoints, remotePoints);
-  const trimmed = merged.slice(0, CLOUD_MAX_POINTS);
+  const localPoints = ensurePointIds(localState.points || []);
+  const remotePoints = ensurePointIds(Array.isArray(data?.points) ? data.points : []);
+  let trimmed = mergePoints(localPoints, remotePoints).slice(0, CLOUD_MAX_POINTS);
+
+  // 클라우드 동기화가 로컬·메모리를 빈 목록으로 덮어쓰는 사고 방지
+  if (trimmed.length === 0) {
+    if (localPoints.length > 0) {
+      trimmed = localPoints.slice(0, CLOUD_MAX_POINTS);
+    } else if (remotePoints.length > 0) {
+      trimmed = remotePoints.slice(0, CLOUD_MAX_POINTS);
+    }
+  }
 
   window.__seaCloudSyncApplying = true;
   try {
@@ -89,7 +138,8 @@ export async function pullAndMergeCloudState(client, userId) {
 
   const localAt = localPoints.reduce((m, p) => Math.max(m, new Date(p.updatedAt || 0).getTime()), 0);
   const remoteAt = data?.updated_at ? new Date(data.updated_at).getTime() : 0;
-  if (localAt > remoteAt && localPoints.length) {
+  const mergedAt = trimmed.reduce((m, p) => Math.max(m, new Date(p.updatedAt || 0).getTime()), 0);
+  if ((localAt > remoteAt || mergedAt > remoteAt) && trimmed.length > 0) {
     scheduleCloudPush(client, userId, 400);
   }
 }
@@ -97,7 +147,10 @@ export async function pullAndMergeCloudState(client, userId) {
 export async function pushLocalStateToCloud(client, userId) {
   if (window.__seaCloudSyncApplying) return;
   const localState = readLocalPoints();
-  let points = Array.isArray(localState.points) ? [...localState.points] : [];
+  let points = ensurePointIds(Array.isArray(localState.points) ? [...localState.points] : []);
+  if (points.length === 0) {
+    return;
+  }
   if (points.length > CLOUD_MAX_POINTS) {
     points = points.slice(0, CLOUD_MAX_POINTS);
     setSyncStatus(`포인트는 클라우드에 최대 ${CLOUD_MAX_POINTS}개까지 저장됩니다.`);

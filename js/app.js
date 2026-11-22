@@ -1,4 +1,4 @@
-import { SEA_STORAGE_KEY } from "./cloud-sync-data.js";
+import { SEA_STORAGE_KEY, ensurePointIds, generatePointId } from "./cloud-sync-data.js";
 import { initSeaPwaUpdate } from "./pwa-update.js";
 
 const TIDE_FORECAST_DAYS = 3;
@@ -48,13 +48,28 @@ function loadState() {
     const raw = localStorage.getItem(SEA_STORAGE_KEY);
     seaPoints = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(seaPoints)) seaPoints = [];
+    seaPoints = ensurePointIds(seaPoints);
+    if (raw && seaPoints.length) {
+      try {
+        localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+      } catch {
+        /* quota */
+      }
+    }
   } catch {
     seaPoints = [];
   }
 }
 
 function saveState() {
-  localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+  seaPoints = ensurePointIds(seaPoints);
+  try {
+    localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+  } catch (err) {
+    console.error(err);
+    setStatus("이 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.");
+    return;
+  }
   if (!window.__seaCloudSyncApplying) {
     window.dispatchEvent(new Event("sea-local-state-saved"));
   }
@@ -70,9 +85,16 @@ function exposeSeaAppApi() {
       seaPoints.reduce((m, p) => Math.max(m, new Date(p.updatedAt || 0).getTime()), 0) || null,
   });
   window.seaAppApplyPoints = (points) => {
-    seaPoints = Array.isArray(points) ? points : [];
-    localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+    seaPoints = ensurePointIds(Array.isArray(points) ? points : []);
+    try {
+      localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+    } catch (err) {
+      console.error(err);
+    }
     renderPointList();
+    window.dispatchEvent(
+      new CustomEvent("sea-points-changed", { detail: { count: seaPoints.length } })
+    );
     if (activePointId && !seaPoints.find((p) => p.id === activePointId)) {
       showListView();
     } else if (activePointId) {
@@ -134,6 +156,8 @@ function collapseListPanelDetails() {
 
 function showListView() {
   destroyAllMaps();
+  activePointId = null;
+  loadState();
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.setAttribute("hidden", "");
@@ -410,7 +434,7 @@ function savePointFromMap() {
   }
 
   const point = {
-    id: crypto.randomUUID(),
+    id: generatePointId(),
     name,
     lat: mapCenter.lat,
     lon: mapCenter.lon,
