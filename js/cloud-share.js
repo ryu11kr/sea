@@ -290,6 +290,13 @@ function describeShareError(err) {
   if (code === "self_share") return "본인 이메일로는 보낼 수 없습니다.";
   if (code === "invalid_email") return "Gmail 형식을 확인해 주세요.";
   if (code === "login_required") return "다시 구글 로그인 후 시도해 주세요.";
+  if (code === "not_found") {
+    return "공유 요청을 찾지 못했습니다. «공유 요청 확인»으로 목록을 새로 고친 뒤 다시 시도해 주세요.";
+  }
+  if (code === "forbidden") {
+    return "이 공유 요청은 지금 로그인한 지메일로 받은 것이 아닙니다. 받는 주소와 같은 계정으로 로그인해 주세요.";
+  }
+  if (code === "not_pending") return "이미 처리된 공유 요청입니다. «공유 요청 확인»을 눌러 주세요.";
   if (code === "server_not_configured") {
     return "Vercel에 SUPABASE_SERVICE_ROLE_KEY를 넣고 Redeploy 해 주세요. (수락 시 필요)";
   }
@@ -410,13 +417,48 @@ async function acceptShareRequest(client, userEmail, listEl, setStatus, requestI
  * @param {(text: string) => void} setStatus
  * @param {string} requestId
  */
+async function rejectShareRequestViaClient(client, requestId) {
+  const { data, error } = await client
+    .from("sea_share_requests")
+    .update({ status: "rejected", responded_at: new Date().toISOString() })
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .select("id");
+  if (error) throw error;
+  if (!data?.length) {
+    const err = new Error("not_pending");
+    err.code = "not_pending";
+    throw err;
+  }
+}
+
 async function rejectShareRequest(client, userEmail, listEl, setStatus, requestId) {
-  await authFetch("share-reject", {
-    method: "POST",
-    body: JSON.stringify({ requestId }),
-  });
+  try {
+    await authFetch("share-reject", {
+      method: "POST",
+      body: JSON.stringify({ requestId }),
+    });
+  } catch (err) {
+    if (err?.code === "login_required" || err?.code === "no_client") throw err;
+    try {
+      await rejectShareRequestViaClient(client, requestId);
+    } catch (clientErr) {
+      throw err?.code ? err : clientErr;
+    }
+  }
   markPopupDismissed(requestId);
   await refreshIncomingShareRequests(client, userEmail, listEl, setStatus, requestId);
+}
+
+async function handleShareActionError(err, requestId, client, userEmail, listEl, setStatus, closeDialog) {
+  console.error(err);
+  const code = err?.code || err?.message;
+  showSeaShareHint(describeShareError(err));
+  if (code === "not_found" || code === "not_pending" || code === "forbidden") {
+    markPopupDismissed(requestId);
+    closeDialog?.();
+    await refreshIncomingShareRequests(client, userEmail, listEl, setStatus, requestId);
+  }
 }
 
 /**
@@ -527,8 +569,7 @@ function bindSharePopupOnce(client, userEmail, listEl, setStatus) {
       await acceptShareRequest(client, userEmail, listEl, setStatus, requestId);
       closeDialog();
     } catch (err) {
-      console.error(err);
-      setStatus?.(describeShareError(err));
+      await handleShareActionError(err, requestId, client, userEmail, listEl, setStatus, closeDialog);
     } finally {
       acceptBtn.disabled = false;
       rejectBtn.disabled = false;
@@ -546,8 +587,7 @@ function bindSharePopupOnce(client, userEmail, listEl, setStatus) {
       await rejectShareRequest(client, userEmail, listEl, setStatus, requestId);
       closeDialog();
     } catch (err) {
-      console.error(err);
-      setStatus?.("거절하지 못했습니다.");
+      await handleShareActionError(err, requestId, client, userEmail, listEl, setStatus, closeDialog);
     } finally {
       acceptBtn.disabled = false;
       rejectBtn.disabled = false;
@@ -740,8 +780,8 @@ export async function refreshIncomingShareRequests(
       try {
         await acceptShareRequest(client, userEmail, listEl, setStatus, row.id);
       } catch (err) {
-        console.error(err);
-        setStatus?.(describeShareError(err));
+        await handleShareActionError(err, row.id, client, userEmail, listEl, setStatus, null);
+      } finally {
         acceptBtn.disabled = false;
         rejectBtn.disabled = false;
       }
@@ -753,8 +793,8 @@ export async function refreshIncomingShareRequests(
       try {
         await rejectShareRequest(client, userEmail, listEl, setStatus, row.id);
       } catch (err) {
-        console.error(err);
-        setStatus?.("거절하지 못했습니다.");
+        await handleShareActionError(err, row.id, client, userEmail, listEl, setStatus, null);
+      } finally {
         acceptBtn.disabled = false;
         rejectBtn.disabled = false;
       }

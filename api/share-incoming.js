@@ -2,7 +2,7 @@
 
 import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
 import { getAdminClient } from "./_lib/admin.js";
-import { canonicalShareEmail, normalizeEmail, shareEmailsMatch } from "./_lib/email.js";
+import { canonicalShareEmail, normalizeEmail, recipientOwnsShareRequest } from "./_lib/email.js";
 
 function maskEmail(email) {
   const n = normalizeEmail(email);
@@ -12,19 +12,6 @@ function maskEmail(email) {
   const domain = n.slice(at + 1);
   const head = local.length <= 2 ? local : `${local.slice(0, 2)}***`;
   return `${head}@${domain}`;
-}
-
-function recipientMatchesRow(row, user) {
-  const mine = [
-    normalizeEmail(resolveUserEmail(user)),
-    canonicalShareEmail(resolveUserEmail(user)),
-  ].filter(Boolean);
-  if (!mine.length) return false;
-  for (const m of mine) {
-    if (normalizeEmail(row.to_email) === m) return true;
-    if (shareEmailsMatch(row.to_email, m)) return true;
-  }
-  return false;
 }
 
 export default async function handler(req, res) {
@@ -69,7 +56,7 @@ export default async function handler(req, res) {
 
   const allPending = data || [];
   const requests = allPending
-    .filter((row) => row.from_user_id !== user.id && recipientMatchesRow(row, user))
+    .filter((row) => row.from_user_id !== user.id && recipientOwnsShareRequest(row.to_email, user))
     .map(({ id, from_email, created_at }) => ({ id, from_email, created_at }));
 
   const debug = {

@@ -1,7 +1,7 @@
 /** POST { requestId } — 포인트 공유 수락 */
 
 import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
-import { shareEmailsMatch } from "./_lib/email.js";
+import { readJsonBody, recipientOwnsShareRequest } from "./_lib/email.js";
 import { getAdminClient } from "./_lib/admin.js";
 import { importPointsFromOwnerToRecipient } from "./_lib/shareImport.js";
 
@@ -23,7 +23,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "login_required" });
   }
 
-  const requestId = String(req.body?.requestId || "").trim();
+  const body = readJsonBody(req);
+  const requestId = String(body?.requestId || "").trim();
   if (!requestId) {
     return res.status(400).json({ error: "missing_request_id" });
   }
@@ -33,16 +34,19 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "server_not_configured" });
   }
 
-  const myEmail = resolveUserEmail(user);
   const { data: reqRow, error: fetchErr } = await admin
     .from("sea_share_requests")
     .select("id, from_user_id, from_email, to_email, status")
     .eq("id", requestId)
     .maybeSingle();
-  if (fetchErr || !reqRow) {
+  if (fetchErr) {
+    console.error("share-accept fetch", fetchErr);
+    return res.status(500).json({ error: "fetch_failed" });
+  }
+  if (!reqRow) {
     return res.status(404).json({ error: "not_found" });
   }
-  if (!shareEmailsMatch(reqRow.to_email, myEmail)) {
+  if (!recipientOwnsShareRequest(reqRow.to_email, user)) {
     return res.status(403).json({ error: "forbidden" });
   }
   if (reqRow.status !== "pending") {

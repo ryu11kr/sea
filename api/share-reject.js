@@ -1,7 +1,7 @@
 /** POST { requestId } — 포인트 공유 거절 */
 
 import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
-import { shareEmailsMatch } from "./_lib/email.js";
+import { readJsonBody, recipientOwnsShareRequest } from "./_lib/email.js";
 import { getAdminClient } from "./_lib/admin.js";
 
 export default async function handler(req, res) {
@@ -22,7 +22,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "login_required" });
   }
 
-  const requestId = String(req.body?.requestId || "").trim();
+  const body = readJsonBody(req);
+  const requestId = String(body?.requestId || "").trim();
   if (!requestId) {
     return res.status(400).json({ error: "missing_request_id" });
   }
@@ -32,15 +33,17 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "server_not_configured" });
   }
 
-  const myEmail = resolveUserEmail(user);
   const { data: reqRow } = await admin
     .from("sea_share_requests")
     .select("to_email, status")
     .eq("id", requestId)
     .maybeSingle();
 
-  if (!reqRow || !shareEmailsMatch(reqRow.to_email, myEmail)) {
+  if (!reqRow) {
     return res.status(404).json({ error: "not_found" });
+  }
+  if (!recipientOwnsShareRequest(reqRow.to_email, user)) {
+    return res.status(403).json({ error: "forbidden" });
   }
   if (reqRow.status !== "pending") {
     return res.status(409).json({ error: "not_pending" });
