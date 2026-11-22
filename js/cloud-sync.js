@@ -1,6 +1,7 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.8/+esm";
 import {
   bindCloudSaveListener,
+  flushCloudPush,
   runFullCloudSync,
   scheduleCloudPush,
   setCloudSyncStatusCallback,
@@ -364,6 +365,11 @@ async function initGoogleAuthUi(client, cfg) {
   logoutBtn.addEventListener("click", async () => {
     logoutBtn.disabled = true;
     try {
+      const { data } = await client.auth.getSession();
+      const userId = data.session?.user?.id;
+      if (userId && cfg.enabled) {
+        await flushCloudPush(client, userId);
+      }
       await client.auth.signOut({ scope: "local" });
       purgeSupabaseAuthKeys();
       cloudSaveListenerBound = false;

@@ -1,4 +1,9 @@
-import { SEA_STORAGE_KEY, ensurePointIds, generatePointId } from "./cloud-sync-data.js";
+import {
+  SEA_STORAGE_KEY,
+  ensurePointIds,
+  generatePointId,
+  touchLocalPointsMutatedAt,
+} from "./cloud-sync-data.js";
 import { initSeaPwaUpdate } from "./pwa-update.js";
 
 const TIDE_FORECAST_DAYS = 3;
@@ -64,6 +69,7 @@ function saveState() {
   seaPoints = ensurePointIds(seaPoints);
   try {
     localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+    touchLocalPointsMutatedAt();
   } catch (err) {
     console.error(err);
     setStatus("이 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.");
