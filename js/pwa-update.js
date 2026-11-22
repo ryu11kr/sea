@@ -112,6 +112,28 @@ function getPageDeployVersion() {
   return v;
 }
 
+/** index에 박힌 스크립트가 캐시·SW로 늦게 남은 경우(로컬 serve) 네트워크에서 다시 읽는다 */
+async function hydratePageDeployVersionFromNetwork() {
+  try {
+    const res = await fetch(`./deploy-version.js?h=${Date.now()}`, {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache" },
+    });
+    if (!res.ok) return;
+    const text = await res.text();
+    const eq = text.indexOf("=");
+    if (eq < 0) return;
+    let payload = text.slice(eq + 1).trim();
+    if (payload.endsWith(";")) payload = payload.slice(0, -1);
+    const parsed = JSON.parse(payload);
+    if (parsed && typeof parsed === "object" && parsed.build != null) {
+      window.SEA_DEPLOY_VERSION = parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 지금 실행 중인 번들(HTML에 박힌 deploy-version)이 서버보다 오래됐는지 */
 function pageBundleIsStale(serverMeta) {
   if (!serverMeta?.build) return false;
@@ -169,6 +191,7 @@ function showAppUpdateBanner(meta) {
 }
 
 async function bootstrapAppVersionCheck() {
+  await hydratePageDeployVersionFromNetwork();
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
   if (shouldPromptAppUpdate(meta)) {
@@ -180,6 +203,7 @@ async function bootstrapAppVersionCheck() {
 }
 
 async function checkAppVersionUpdate() {
+  await hydratePageDeployVersionFromNetwork();
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
   if (shouldPromptAppUpdate(meta)) {
@@ -328,6 +352,7 @@ function bindAppUpdateUi() {
 export async function initSeaPwaUpdate() {
   if (!("serviceWorker" in navigator)) return;
   await loadPwaConfig();
+  await hydratePageDeployVersionFromNetwork();
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloadOnControllerChange) location.reload();
   });

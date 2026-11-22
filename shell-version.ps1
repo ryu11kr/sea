@@ -9,8 +9,17 @@
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     if ($config.cachePrefix) { return [string]$config.cachePrefix }
   } catch {
-    return "pwa-starter"
+    # fall through
   }
+
+  $swConfigPath = Join-Path $Root "sw.config.js"
+  if (Test-Path $swConfigPath -PathType Leaf) {
+    $swText = Get-Content $swConfigPath -Raw
+    if ($swText -match 'CACHE_PREFIX\s*=\s*"([^"]+)"') {
+      return [string]$Matches[1]
+    }
+  }
+
   return "pwa-starter"
 }
 
@@ -60,6 +69,58 @@ function Get-ShellFingerprint {
   return ([BitConverter]::ToString($hash) -replace "-", "").ToLower()
 }
 
+function Sync-DeployVersionFromVersionJson {
+  param([string] $Root)
+
+  $versionPath = Join-Path $Root "version.json"
+  $deployPath = Join-Path $Root "deploy-version.js"
+  if (-not (Test-Path $versionPath -PathType Leaf)) {
+    return $false
+  }
+
+  $version = Get-Content $versionPath -Raw | ConvertFrom-Json
+  if (-not $version.build) {
+    return $false
+  }
+
+  $deployBuild = 0
+  if (Test-Path $deployPath -PathType Leaf) {
+    $deployText = Get-Content $deployPath -Raw
+    if ($deployText -match '"build"\s*:\s*(\d+)') {
+      $deployBuild = [int]$Matches[1]
+    }
+  }
+
+  if ($deployBuild -eq [int]$version.build) {
+    return $false
+  }
+
+  $utf8 = New-Object Text.UTF8Encoding $false
+  $meta = @{
+    build = [int]$version.build
+    cacheName = if ($version.cacheName) { [string]$version.cacheName } else { $null }
+    label = if ($version.label) { [string]$version.label } else { $null }
+    updatedAt = if ($version.updatedAt) { [string]$version.updatedAt } else { $null }
+    commitSha = if ($version.commitSha) { [string]$version.commitSha } else { $null }
+  }
+  $prefix = Get-PwaCachePrefix -Root $Root
+  $expectedCache = "$prefix-$($meta.build)"
+  if (-not $meta.cacheName -or $meta.cacheName -ne $expectedCache) {
+    $meta.cacheName = $expectedCache
+    $version.cacheName = $expectedCache
+    $utf8Fix = New-Object Text.UTF8Encoding $false
+    [IO.File]::WriteAllText($versionPath, ($version | ConvertTo-Json -Compress), $utf8Fix)
+  }
+  if (-not $meta.label) { $meta.label = "빌드 $($meta.build)" }
+  if (-not $meta.updatedAt) {
+    $meta.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+  }
+
+  $deployJs = "window.SEA_DEPLOY_VERSION=" + ($meta | ConvertTo-Json -Compress) + ";"
+  [IO.File]::WriteAllText($deployPath, $deployJs, $utf8)
+  return $true
+}
+
 function Sync-ShellVersion {
   param([string] $Root)
 
@@ -74,6 +135,7 @@ function Sync-ShellVersion {
   }
 
   if ($fingerprint -eq $state.fingerprint) {
+    [void](Sync-DeployVersionFromVersionJson -Root $Root)
     return $null
   }
 
@@ -100,5 +162,6 @@ function Sync-ShellVersion {
   $deployJs = "window.SEA_DEPLOY_VERSION=" + ($version | ConvertTo-Json -Compress) + ";"
   $deployPath = Join-Path $Root "deploy-version.js"
   [IO.File]::WriteAllText($deployPath, $deployJs, $utf8)
+  [void](Sync-DeployVersionFromVersionJson -Root $Root)
   return $build
 }

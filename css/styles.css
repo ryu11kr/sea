@@ -690,6 +690,7 @@ body.sea-app {
 .sea-share-email {
   width: 100%;
   min-height: 3.35rem;
+  margin-bottom: 0.65rem;
   padding: 0.65rem 0.95rem;
   font-size: clamp(1.12rem, 4.2vw, 1.22rem);
   font-weight: 700;

@@ -58,7 +58,9 @@ try {
         if ([string]::IsNullOrEmpty($line)) { break }
       }
 
+      . (Join-Path $PSScriptRoot "shell-version.ps1")
       $bumped = Sync-ShellVersion -Root $root
+      [void](Sync-DeployVersionFromVersionJson -Root $root)
       if ($bumped) {
         Write-Output "[PWA] shell 변경 → 빌드 $bumped"
       }
@@ -84,6 +86,23 @@ try {
         $body = [IO.File]::ReadAllBytes($full)
         $ext = [IO.Path]::GetExtension($full).ToLowerInvariant()
         if ($types.ContainsKey($ext)) { $type = $types[$ext] }
+        if ($relative -ieq "index.html") {
+          try {
+            $build = 1
+            $versionPath = Join-Path $root "version.json"
+            if (Test-Path $versionPath -PathType Leaf) {
+              $vj = Get-Content $versionPath -Raw | ConvertFrom-Json
+              if ($vj.build) { $build = [int]$vj.build }
+            }
+            $html = [Text.Encoding]::UTF8.GetString($body)
+            if ($html -match 'src="\./deploy-version\.js"') {
+              $html = $html -replace 'src="\./deploy-version\.js"', "src=`"./deploy-version.js?v=$build`""
+              $body = [Text.Encoding]::UTF8.GetBytes($html)
+            }
+          } catch {
+            # keep original
+          }
+        }
       }
 
       $header = "HTTP/1.1 $status OK`r`nContent-Type: $type`r`nContent-Length: $($body.Length)`r`nCache-Control: no-cache`r`nConnection: close`r`n`r`n"
