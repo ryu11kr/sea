@@ -22,7 +22,7 @@ const DEFAULT_CLOUD_SYNC_CONFIG = {
   enabled: true,
   showTeaser: true,
   showGoogleLogin: true,
-  teaserTitle: "포인트 보관",
+  teaserTitle: "포인트 저장",
   teaserMessage:
     "구글로 로그인하면 바다 포인트 목록을 안전하게 보관합니다. 기기를 바꿔도 같은 구글 계정으로 다시 불러올 수 있습니다. 로그인하지 않으면 이 기기에만 저장됩니다.",
 };

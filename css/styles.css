@@ -201,6 +201,27 @@ body.sea-app {
   margin-top: 0.5rem;
 }
 
+.big-btn.back-btn-bottom {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  color: var(--brand-ink);
+  background: #fff;
+  border: 3px solid var(--brand-dark);
+  box-shadow: var(--shadow);
+}
+
+.home-install-block .install-btn {
+  color: var(--brand-ink);
+  background: linear-gradient(180deg, #fff 0%, var(--brand-tint) 100%);
+  border: 3px solid var(--brand-dark);
+  box-shadow: 0 4px 14px rgba(7, 89, 133, 0.22);
+}
+
+.home-install-block .install-btn:focus-visible {
+  outline: 3px solid var(--brand-tint-border);
+  outline-offset: 2px;
+}
+
 .text-field-input {
   width: 100%;
   min-height: 3.25rem;
