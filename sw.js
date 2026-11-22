@@ -78,8 +78,14 @@ self.addEventListener("message", (event) => {
 async function networkFirst(request) {
   try {
     const res = await fetch(request);
-    const cache = await caches.open(CACHE_NAME);
-    cache.put(request, res.clone());
+    if (res.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        await cache.put(request, res.clone());
+      } catch {
+        /* body already read */
+      }
+    }
     return res;
   } catch {
     const cached = await caches.match(request);
@@ -93,12 +99,23 @@ async function networkFirst(request) {
 }
 
 async function staleWhileRevalidate(request) {
-  const cached = await caches.match(request);
-  const network = fetch(request)
-    .then((res) => {
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, res.clone()));
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  const networkPromise = fetch(request)
+    .then(async (res) => {
+      if (res?.ok) {
+        try {
+          await cache.put(request, res.clone());
+        } catch {
+          /* ignore */
+        }
+      }
       return res;
     })
-    .catch(() => null);
-  return cached || (await network) || new Response("offline", { status: 503 });
+  if (cached) {
+    networkPromise.catch(() => {});
+    return cached;
+  }
+  const network = await networkPromise.catch(() => null);
+  return network || new Response("offline", { status: 503 });
 }

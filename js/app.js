@@ -23,10 +23,9 @@ let editPointId = null;
 
 let mapCenter = { lat: 37.5665, lon: 126.978 };
 let addressDebounce = null;
+let mapSearchHintBound = false;
 
 const $ = (sel) => document.querySelector(sel);
-
-init();
 
 function init() {
   if (!document.body.classList.contains("sea-app")) return;
@@ -343,8 +342,6 @@ async function refreshCenterAddress() {
     if (addrEl) addrEl.textContent = `${mapCenter.lat.toFixed(5)}, ${mapCenter.lon.toFixed(5)}`;
   }
 }
-
-let mapSearchHintBound = false;
 
 function bindMapSearchHintDialog() {
   if (mapSearchHintBound) return;
@@ -973,3 +970,5 @@ function bindAppShareUi() {
     setStatus("");
   });
 }
+
+init();
