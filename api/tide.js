@@ -56,7 +56,8 @@ export default async function handler(req, res) {
       surveyMsg: survey.apiMessage,
       surveyRows: survey.rowCount,
       hlCode: hl.resultCode,
-      hlMsg: hl.apiMessage
+      hlMsg: hl.apiMessage,
+      sampleKeys: survey.sampleKeys
     };
 
     const userMsg = buildUserMessage(detail);
@@ -64,7 +65,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       ...base,
       items: [],
-      error: "upstream_failed",
+      error: survey.rowCount > 0 ? "parse_failed" : "upstream_failed",
       message: userMsg,
       publicData: detail
     });
@@ -170,12 +171,14 @@ async function fetchDataGoSurvey(serviceKey, obsCode, date) {
     reqDate: date,
     pageNo: "1",
     numOfRows: "300",
-    min: "60"
+    min: "10"
   };
   let apiMessage = "";
   let resultCode = "";
   let rowCount = 0;
   let httpStatus = 0;
+  let sampleKeys = [];
+  let lastRows = [];
 
   for (const url of buildDataGoUrls(DATA_GO_SURVEY, serviceKey, params)) {
     const { text, status } = await fetchText(url);
@@ -193,18 +196,26 @@ async function fetchDataGoSurvey(serviceKey, obsCode, date) {
     if (!dataGoOk(data)) continue;
 
     const rows = dataGoRows(data);
+    lastRows = rows;
     rowCount = rows.length;
-    const items = extractHighLowFromSeries(rows);
+    if (rows[0]) sampleKeys = Object.keys(rows[0]);
+
+    let items = extractHighLowFromSeries(rows, "pre");
+    if (!items.length) items = extractHighLowFromSeries(rows, "obs");
+    if (!items.length) items = extractHighLowFromSeries(rows, "auto");
     if (items.length) {
-      return { items, apiMessage, resultCode, rowCount };
+      return { items, apiMessage, resultCode, rowCount, sampleKeys };
     }
   }
 
   if (!apiMessage && httpStatus === 403) {
     apiMessage = "인증키 오류 가능성(HTTP 403). Vercel 키를 마이페이지에서 다시 복사해 넣으세요.";
   }
+  if (resultCode === "00" && rowCount > 0) {
+    apiMessage = apiMessage || "NORMAL_SERVICE";
+  }
 
-  return { items: [], apiMessage, resultCode, rowCount };
+  return { items: [], apiMessage, resultCode, rowCount, sampleKeys, rows: lastRows };
 }
 
 async function fetchDataGoHighLow(serviceKey, obsCode, date) {
@@ -244,7 +255,11 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
 }
 
 function buildUserMessage(detail) {
-  const { surveyMsg, surveyCode, hlMsg, surveyRows } = detail;
+  const { surveyMsg, surveyCode, hlMsg, surveyRows, sampleKeys } = detail;
+  if (surveyRows > 0 && surveyCode === "00") {
+    const keys = (sampleKeys || []).join(", ");
+    return `조회는 성공(00)했으나 만조·간조 추출 실패 (${surveyRows}건). 필드: ${keys || "?"}`;
+  }
   if (surveyMsg) {
     return `공공데이터: [${surveyCode || "?"}] ${surveyMsg}`;
   }
@@ -275,27 +290,62 @@ function normalizeTideRow(row) {
   };
 }
 
-function rowLevel(row) {
-  const keys = [
-    "tideLevel",
+function getField(row, ...names) {
+  for (const n of names) {
+    const v = row?.[n];
+    if (v != null && v !== "") return v;
+  }
+  const keys = Object.keys(row || {});
+  for (const n of names) {
+    const found = keys.find((k) => k.toLowerCase() === String(n).toLowerCase());
+    if (found != null && row[found] != null && row[found] !== "") return row[found];
+  }
+  return undefined;
+}
+
+function rowLevel(row, mode = "auto") {
+  const preKeys = [
     "preTideLevel",
     "predictTideLevel",
+    "pre_tide_level",
+    "preTide",
+    "preTideLvl",
+    "preTideVal"
+  ];
+  const obsKeys = [
+    "tideLevel",
     "obsTideLevel",
     "tide_level",
-    "tph_level",
-    "level",
+    "obs_tide_level",
     "tideObs",
-    "preTide",
     "obsTide",
     "realTide",
-    "pre_tide_level",
-    "obs_tide_level"
+    "tideLvl"
   ];
-  for (const k of keys) {
-    if (row[k] == null || row[k] === "") continue;
-    return normalizeLevelCm(row[k]);
+  const order =
+    mode === "pre" ? [...preKeys, ...obsKeys] : mode === "obs" ? [...obsKeys, ...preKeys] : [...preKeys, ...obsKeys];
+  for (const k of order) {
+    const v = getField(row, k);
+    if (v == null || v === "") continue;
+    return normalizeLevelCm(v);
   }
   return NaN;
+}
+
+function rowTime(row) {
+  return getField(
+    row,
+    "obsTime",
+    "obsDate",
+    "obsDt",
+    "recordTime",
+    "record_time",
+    "preTime",
+    "preDate",
+    "datetime",
+    "dateTime",
+    "time"
+  );
 }
 
 function normalizeLevelCm(v) {
@@ -328,13 +378,11 @@ function inferTideType(raw) {
   return "unknown";
 }
 
-function extractHighLowFromSeries(rows) {
+function extractHighLowFromSeries(rows, mode = "auto") {
   const points = rows
     .map((row) => {
-      const time = formatObsTime(
-        row.obsTime || row.obs_time || row.record_time || row.preTime || row.time
-      );
-      const level = rowLevel(row);
+      const time = formatObsTime(rowTime(row));
+      const level = rowLevel(row, mode);
       if (!time || !Number.isFinite(level)) return null;
       return { time, levelCm: level };
     })
@@ -354,5 +402,19 @@ function extractHighLowFromSeries(rows) {
       out.push({ time: points[i].time, levelCm: cur, type: "low" });
     }
   }
-  return out.slice(0, 8);
+
+  if (out.length) return out.slice(0, 8);
+
+  const sorted = [...points].sort((a, b) => a.time.localeCompare(b.time));
+  const half = Math.floor(sorted.length / 2);
+  const early = sorted.slice(0, half);
+  const late = sorted.slice(half);
+  const pick = (arr, pickHigh) => {
+    if (!arr.length) return null;
+    const best = arr.reduce((a, b) => (pickHigh ? (a.levelCm >= b.levelCm ? a : b) : a.levelCm <= b.levelCm ? a : b));
+    return { ...best, type: pickHigh ? "high" : "low" };
+  };
+  const hi = pick(sorted, true);
+  const lo = pick(sorted, false);
+  return [hi, lo].filter(Boolean);
 }
