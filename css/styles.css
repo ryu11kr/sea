@@ -372,6 +372,36 @@ body.sea-app {
   line-height: 1.55;
 }
 
+.forecast-loading {
+  margin: 0.65rem 0;
+  padding: 1.1rem 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--muted);
+}
+
+.sea-share-pending-panel {
+  margin-bottom: 0.65rem;
+  padding: 0.85rem 1rem;
+}
+
+.sea-share-pending-lede {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--brand-deep);
+}
+
+.sea-share-pending-hint {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  line-height: 1.48;
+  color: var(--muted);
+}
+
 .data-card {
   background: var(--bg-raised);
   border: 1px solid var(--line);

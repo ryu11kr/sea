@@ -490,8 +490,39 @@ function deleteActivePoint() {
   showListView();
 }
 
+function showDetailLoadingPlaceholders() {
+  const tideEl = $("#tide-forecast-days");
+  if (tideEl) {
+    tideEl.replaceChildren();
+    const p = document.createElement("p");
+    p.className = "forecast-loading";
+    p.setAttribute("role", "status");
+    p.textContent = "물때 정보를 불러오는 중…";
+    tideEl.append(p);
+  }
+  const cur = $("#weather-current");
+  if (cur) {
+    cur.replaceChildren();
+    const p = document.createElement("p");
+    p.className = "forecast-loading";
+    p.setAttribute("role", "status");
+    p.textContent = "날씨 정보를 불러오는 중…";
+    cur.append(p);
+  }
+  $("#weather-hourly")?.replaceChildren();
+  const weekEl = $("#weather-forecast-days");
+  if (weekEl) {
+    weekEl.replaceChildren();
+    const p = document.createElement("p");
+    p.className = "forecast-loading";
+    p.textContent = "주간 날씨를 불러오는 중…";
+    weekEl.append(p);
+  }
+}
+
 async function loadDetailData(point) {
   clearDetailPanels();
+  showDetailLoadingPlaceholders();
 
   setStatus("물때·날씨 불러오는 중…");
   const tideDates = Array.from({ length: TIDE_FORECAST_DAYS }, (_, i) => addDays(new Date(), i));

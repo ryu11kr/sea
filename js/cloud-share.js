@@ -295,6 +295,21 @@ export function resolveSessionEmail(user) {
 
 let pendingShareIncomingCount = 0;
 
+function signedInForSharePanel() {
+  const logoutBtn = document.querySelector("#cloud-sync-logout");
+  return Boolean(logoutBtn && !logoutBtn.hidden);
+}
+
+export function syncSeaSharePendingPanel(pendingCount) {
+  const panel = document.querySelector("#sea-share-pending-panel");
+  if (!panel) return;
+  const count =
+    typeof pendingCount === "number" && Number.isFinite(pendingCount)
+      ? pendingCount
+      : pendingShareIncomingCount;
+  panel.hidden = !(signedInForSharePanel() && count > 0);
+}
+
 function apiBase() {
   return new URL("./api/", window.location.href).href;
 }
@@ -765,11 +780,9 @@ export async function refreshIncomingShareRequests(
   const plain = normalizeEmail(userEmail);
   const canon = canonicalShareEmail(userEmail);
   if (!plain) {
-    if (listEl) {
-      listEl.hidden = true;
-      listEl.replaceChildren();
-    }
+    if (listEl) listEl.replaceChildren();
     pendingShareIncomingCount = 0;
+    syncSeaSharePendingPanel(0);
     return;
   }
 
@@ -809,28 +822,25 @@ export async function refreshIncomingShareRequests(
       console.error(error);
       setStatus?.("공유 요청을 불러오지 못했습니다.");
     }
-    if (listEl) {
-      listEl.hidden = true;
-      listEl.replaceChildren();
-    }
+    if (listEl) listEl.replaceChildren();
     pendingShareIncomingCount = 0;
     syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null);
+    syncSeaSharePendingPanel(0);
     syncSharePendingNudge([], client, userEmail, listEl, setStatus);
     return;
   }
 
   pendingShareIncomingCount = data.length;
   syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null);
+  syncSeaSharePendingPanel(data.length);
 
   if (listEl) {
     listEl.replaceChildren();
     if (!data?.length) {
-      listEl.hidden = true;
       maybeShowSharePopup([], client, userEmail, listEl, setStatus, preferRequestId);
       syncSharePendingNudge([], client, userEmail, listEl, setStatus);
       return;
     }
-    listEl.hidden = false;
   }
 
   if (!data?.length) {

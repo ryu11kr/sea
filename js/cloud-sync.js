@@ -13,6 +13,7 @@ import {
   refreshIncomingForSession,
   refreshIncomingShareRequests,
   resolveSessionEmail,
+  syncSeaSharePendingPanel,
   syncSeaShareTeaserVisibility,
   showShareAcceptBusy,
   startIncomingSharePolling,
@@ -338,11 +339,9 @@ async function initGoogleAuthUi(client, cfg) {
       stopIncomingSharePolling();
       shareIncomingStatusCb = null;
       syncSeaShareTeaserVisibility(null);
+      syncSeaSharePendingPanel(0);
       const incomingEl = document.querySelector("#sea-share-incoming");
-      if (incomingEl) {
-        incomingEl.hidden = true;
-        incomingEl.replaceChildren();
-      }
+      if (incomingEl) incomingEl.replaceChildren();
       cloudSaveListenerBound = false;
       if (introEl) introEl.hidden = false;
       statusEl.textContent = "구글로 로그인하면 포인트를 클라우드에 보관할 수 있습니다.";
