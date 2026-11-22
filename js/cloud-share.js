@@ -707,9 +707,19 @@ let busShareTeaserListenerBound = false;
  * @param {import("@supabase/supabase-js").Session | null | undefined} session
  * @param {number | undefined} stopCount
  */
+export function syncSeaShareReceiveBlock(signedIn, pendingIncoming) {
+  const block = document.querySelector("#sea-share-receive-block");
+  const pending =
+    typeof pendingIncoming === "number" && Number.isFinite(pendingIncoming)
+      ? pendingIncoming
+      : pendingShareIncomingCount;
+  if (block) block.hidden = !signedIn || pending <= 0;
+}
+
 export function syncSeaShareTeaserVisibility(session, stopCount, pendingIncoming) {
   const teaser = document.querySelector("#sea-share-teaser");
-  if (!teaser) return;
+  const sendWrap = document.querySelector("#sea-share-send-wrap");
+  const needPoints = document.querySelector("#sea-share-send-need-points");
   const signedIn = Boolean(session?.user);
   const count =
     typeof stopCount === "number" && Number.isFinite(stopCount)
@@ -719,12 +729,20 @@ export function syncSeaShareTeaserVisibility(session, stopCount, pendingIncoming
     typeof pendingIncoming === "number" && Number.isFinite(pendingIncoming)
       ? pendingIncoming
       : pendingShareIncomingCount;
-  const show = signedIn && (count > 0 || pending > 0);
-  teaser.hidden = !show;
-  if (!show) {
+
+  syncSeaShareReceiveBlock(signedIn, pending);
+
+  if (!teaser) return;
+  const showSend = signedIn && count > 0;
+  teaser.hidden = !signedIn;
+  if (!signedIn) {
     teaser.open = false;
+    if (sendWrap) sendWrap.hidden = true;
+    if (needPoints) needPoints.hidden = true;
     return;
   }
+  if (sendWrap) sendWrap.hidden = !showSend;
+  if (needPoints) needPoints.hidden = showSend;
   if (pending > 0) teaser.open = true;
 }
 
@@ -736,7 +754,7 @@ function bindSeaShareTeaserStopListener() {
     const signedIn = Boolean(logoutBtn && !logoutBtn.hidden);
     const stopCount =
       typeof ev?.detail?.count === "number" ? ev.detail.count : undefined;
-    syncSeaShareTeaserVisibility(signedIn ? { user: {} } : null, stopCount);
+    syncSeaShareTeaserVisibility(signedIn ? { user: {} } : null, stopCount, pendingShareIncomingCount);
   });
 }
 
@@ -745,8 +763,7 @@ function bindSeaShareTeaserStopListener() {
  * @param {import("@supabase/supabase-js").Session} session
  * @param {(text: string) => void} setStatus
  */
-export function initSeaShareUi(client, session, setStatus) {
-  const teaser = document.querySelector("#sea-share-teaser");
+export async function initSeaShareUi(client, session, setStatus) {
   const sendInput = document.querySelector("#sea-share-to-email");
   const sendBtn = document.querySelector("#sea-share-send");
   const incomingEl = document.querySelector("#sea-share-incoming");
@@ -755,10 +772,11 @@ export function initSeaShareUi(client, session, setStatus) {
 
   if (!session?.user) {
     syncSeaShareTeaserVisibility(null);
+    syncSeaShareReceiveBlock(false, 0);
     return;
   }
 
-  syncSeaShareTeaserVisibility(session);
+  syncSeaShareReceiveBlock(true, pendingShareIncomingCount);
   bindSeaShareModalScrollLock();
 
   if (!shareUiBound) {
@@ -818,7 +836,8 @@ export function initSeaShareUi(client, session, setStatus) {
     }
   }
 
-  void refreshIncomingForSession(client, session, incomingEl, setStatus);
+  await refreshIncomingForSession(client, session, incomingEl, setStatus);
+  syncSeaShareTeaserVisibility(session, undefined, pendingShareIncomingCount);
 
   const params = new URLSearchParams(window.location.search);
   if (params.get("share") === "pending" && incomingEl) {

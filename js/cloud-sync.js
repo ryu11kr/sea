@@ -13,6 +13,7 @@ import {
   refreshIncomingForSession,
   refreshIncomingShareRequests,
   resolveSessionEmail,
+  syncSeaShareTeaserVisibility,
   showShareAcceptBusy,
   startIncomingSharePolling,
   stopIncomingSharePolling,
@@ -324,20 +325,13 @@ async function initGoogleAuthUi(client, cfg) {
         syncEl.textContent = text;
       };
       shareIncomingStatusCb = setShareStatus;
-      initSeaShareUi(client, session, setShareStatus);
-      void refreshIncomingForSession(
-        client,
-        session,
-        document.querySelector("#sea-share-incoming"),
-        setShareStatus
-      );
+      await initSeaShareUi(client, session, setShareStatus);
       startIncomingSharePolling(client, setShareStatus);
     } else {
       stopIncomingSharePolling();
       shareIncomingStatusCb = null;
-      const shareTeaser = document.querySelector("#sea-share-teaser");
+      syncSeaShareTeaserVisibility(null);
       const incomingEl = document.querySelector("#sea-share-incoming");
-      if (shareTeaser) shareTeaser.hidden = true;
       if (incomingEl) {
         incomingEl.hidden = true;
         incomingEl.replaceChildren();

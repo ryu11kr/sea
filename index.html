@@ -75,6 +75,15 @@
         <p id="sea-status" class="sea-status" aria-live="polite" role="status"></p>
 
         <div class="list-info-panel">
+          <div id="sea-share-receive-block" class="sea-share-receive-block panel-lite" hidden>
+            <p class="sea-share-receive-lede">지인이 보낸 <strong>포인트 공유</strong> 요청</p>
+            <div
+              id="sea-share-incoming"
+              class="sea-share-incoming"
+              hidden
+              aria-live="polite"
+            ></div>
+          </div>
           <details id="cloud-sync-teaser" class="home-more panel-lite cloud-sync-teaser">
             <summary>포인트 저장</summary>
             <div id="cloud-sync-teaser-intro">
@@ -110,19 +119,23 @@
               사람이 수락하면 목록에 합쳐집니다.
             </p>
             <div id="sea-share-panel" class="sea-share-panel">
-              <input
-                id="sea-share-to-email"
-                class="text-field-input sea-share-email"
-                type="text"
-                inputmode="email"
-                autocomplete="username"
-                placeholder="지메일 아이디만 입력"
-                aria-label="지메일 아이디"
-              />
-              <button type="button" id="sea-share-send" class="big-btn secondary">
-                포인트 공유하기
-              </button>
-              <div id="sea-share-incoming" class="sea-share-incoming" hidden aria-live="polite"></div>
+              <div id="sea-share-send-wrap" class="sea-share-send-wrap">
+                <input
+                  id="sea-share-to-email"
+                  class="text-field-input sea-share-email"
+                  type="text"
+                  inputmode="email"
+                  autocomplete="username"
+                  placeholder="지메일 아이디만 입력"
+                  aria-label="지메일 아이디"
+                />
+                <button type="button" id="sea-share-send" class="big-btn secondary">
+                  포인트 공유하기
+                </button>
+              </div>
+              <p id="sea-share-send-need-points" class="sea-share-send-need-points" hidden>
+                포인트를 하나 이상 저장한 뒤 다른 분에게 보낼 수 있습니다.
+              </p>
             </div>
           </details>
 
