@@ -1,11 +1,29 @@
 /** Bearer JWT → Supabase 사용자 */
 
+export function getBearerToken(req) {
+  return String(req.headers.authorization || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+}
+
+/** 로그인 JWT로 PostgREST 조회 (RLS = 앱과 동일) */
+export async function getUserDbClient(req) {
+  const url = (process.env.SUPABASE_URL || "").trim();
+  const anon = (process.env.SUPABASE_ANON_KEY || "").trim();
+  const token = getBearerToken(req);
+  if (!url || !anon || !token) return null;
+
+  const { createClient } = await import("@supabase/supabase-js");
+  return createClient(url, anon, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+}
+
 export async function getAuthUser(req) {
   const url = (process.env.SUPABASE_URL || "").trim();
   const anon = (process.env.SUPABASE_ANON_KEY || "").trim();
-  const token = String(req.headers.authorization || "")
-    .replace(/^Bearer\s+/i, "")
-    .trim();
+  const token = getBearerToken(req);
   if (!url || !anon || !token) return null;
 
   const { createClient } = await import("@supabase/supabase-js");

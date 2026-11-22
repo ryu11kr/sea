@@ -33,3 +33,16 @@ create policy "sea_share_update_recipient_reject"
     and status = 'pending'
   )
   with check (status = 'rejected');
+
+drop policy if exists "sea_share_update_recipient_accept" on public.sea_share_requests;
+create policy "sea_share_update_recipient_accept"
+  on public.sea_share_requests for update
+  to authenticated
+  using (
+    (
+      lower(to_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      or lower(to_email) = lower(coalesce(auth.email(), ''))
+    )
+    and status = 'pending'
+  )
+  with check (status = 'accepted');

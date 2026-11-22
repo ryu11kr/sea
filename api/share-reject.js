@@ -1,8 +1,7 @@
 /** POST { requestId } — 포인트 공유 거절 */
 
-import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
+import { getAuthUser, getUserDbClient, resolveUserEmail } from "./_lib/auth.js";
 import { readJsonBody, recipientOwnsShareRequest, isUuid } from "./_lib/email.js";
-import { getAdminClient } from "./_lib/admin.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -31,16 +30,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "invalid_request_id" });
   }
 
-  const admin = await getAdminClient();
-  if (!admin) {
-    return res.status(503).json({ error: "server_not_configured" });
+  const userDb = await getUserDbClient(req);
+  if (!userDb) {
+    return res.status(401).json({ error: "login_required" });
   }
 
-  const { data: reqRow } = await admin
+  const { data: reqRow, error: fetchErr } = await userDb
     .from("sea_share_requests")
     .select("to_email, status")
     .eq("id", requestId)
     .maybeSingle();
+  if (fetchErr) {
+    console.error("share-reject fetch", fetchErr);
+    return res.status(500).json({ error: "fetch_failed" });
+  }
 
   if (!reqRow) {
     return res.status(404).json({ error: "not_found" });
@@ -52,10 +55,20 @@ export default async function handler(req, res) {
     return res.status(409).json({ error: "not_pending" });
   }
 
-  await admin
+  const now = new Date().toISOString();
+  const { data: updated, error: updErr } = await userDb
     .from("sea_share_requests")
-    .update({ status: "rejected", responded_at: new Date().toISOString() })
-    .eq("id", requestId);
+    .update({ status: "rejected", responded_at: now })
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .select("id");
+  if (updErr) {
+    console.error("share-reject update", updErr);
+    return res.status(500).json({ error: "update_failed" });
+  }
+  if (!updated?.length) {
+    return res.status(409).json({ error: "not_pending" });
+  }
 
   return res.status(200).json({ ok: true });
 }

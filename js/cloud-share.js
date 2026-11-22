@@ -147,6 +147,11 @@ export function startIncomingSharePolling(client, setStatus) {
 
   sharePollTick = tick;
   void tick();
+  for (const delay of [600, 1800]) {
+    window.setTimeout(() => {
+      void tick();
+    }, delay);
+  }
   sharePollTimer = window.setInterval(() => {
     void tick();
   }, SHARE_POLL_MS);
@@ -356,7 +361,10 @@ function describeShareError(err) {
     return "공유 요청 ID가 올바르지 않습니다. 잠시 후 팝업을 다시 확인해 주세요.";
   }
   if (code === "server_db_mismatch") {
-    return "요청은 보이지만 서버에서 찾지 못했습니다. 보내는 쪽에서 지금 로그인한 지메일로 다시 공유해 주세요.";
+    return "요청은 보이지만 서버 조회가 맞지 않습니다. 앱을 새로고침한 뒤 다시 수락해 보세요.";
+  }
+  if (code === "import_failed" || code === "status_update_failed") {
+    return "포인트를 가져오지 못했습니다. Vercel에 물때 Supabase의 service_role 키가 맞는지 확인 후 Redeploy 해 주세요.";
   }
   if (code === "server_not_configured") {
     return "Vercel에 SUPABASE_SERVICE_ROLE_KEY를 넣고 Redeploy 해 주세요. (수락 시 필요)";
@@ -442,16 +450,6 @@ function markPopupDismissed(requestId) {
  * @param {(text: string) => void} setStatus
  * @param {string} requestId
  */
-async function probeShareRequestOnClient(client, requestId) {
-  const { data, error } = await client
-    .from("sea_share_requests")
-    .select("id, status, to_email")
-    .eq("id", requestId)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
 async function acceptShareRequest(client, userEmail, listEl, setStatus, requestId) {
   showShareAcceptBusy("공유를 수락하는 중…", setStatus);
   await yieldToPaint();
@@ -464,22 +462,6 @@ async function acceptShareRequest(client, userEmail, listEl, setStatus, requestI
     } catch (accErr) {
       if (accErr.code === "server_not_configured") {
         throw Object.assign(new Error("server_not_configured"), accErr);
-      }
-      if (accErr.code === "not_found") {
-        const row = await probeShareRequestOnClient(client, requestId).catch(() => null);
-        if (!row) {
-          const err = new Error("not_found");
-          err.code = "not_found";
-          throw err;
-        }
-        if (row.status !== "pending") {
-          const err = new Error("not_pending");
-          err.code = "not_pending";
-          throw err;
-        }
-        const mismatch = new Error("server_db_mismatch");
-        mismatch.code = "server_db_mismatch";
-        throw mismatch;
       }
       throw accErr;
     }

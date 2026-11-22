@@ -1,6 +1,6 @@
 /** POST { requestId } — 포인트 공유 수락 */
 
-import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
+import { getAuthUser, getUserDbClient, resolveUserEmail } from "./_lib/auth.js";
 import { readJsonBody, recipientOwnsShareRequest, isUuid } from "./_lib/email.js";
 import { getAdminClient } from "./_lib/admin.js";
 import { importPointsFromOwnerToRecipient } from "./_lib/shareImport.js";
@@ -32,12 +32,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "invalid_request_id" });
   }
 
-  const admin = await getAdminClient();
-  if (!admin) {
-    return res.status(503).json({ error: "server_not_configured" });
+  const userDb = await getUserDbClient(req);
+  if (!userDb) {
+    return res.status(401).json({ error: "login_required" });
   }
 
-  const { data: reqRow, error: fetchErr } = await admin
+  const { data: reqRow, error: fetchErr } = await userDb
     .from("sea_share_requests")
     .select("id, from_user_id, from_email, to_email, status")
     .eq("id", requestId)
@@ -56,13 +56,30 @@ export default async function handler(req, res) {
     return res.status(409).json({ error: "not_pending" });
   }
 
+  const admin = await getAdminClient();
+  if (!admin) {
+    return res.status(503).json({ error: "server_not_configured" });
+  }
+
   try {
     const result = await importPointsFromOwnerToRecipient(admin, reqRow.from_user_id, user.id);
     const now = new Date().toISOString();
-    await admin
+    const { error: adminUpdErr } = await admin
       .from("sea_share_requests")
       .update({ status: "accepted", responded_at: now })
       .eq("id", requestId);
+    if (adminUpdErr) {
+      const { data: acceptedViaUser, error: userUpdErr } = await userDb
+        .from("sea_share_requests")
+        .update({ status: "accepted", responded_at: now })
+        .eq("id", requestId)
+        .eq("status", "pending")
+        .select("id");
+      if (userUpdErr || !acceptedViaUser?.length) {
+        console.error("share-accept status", adminUpdErr, userUpdErr);
+        return res.status(500).json({ error: "status_update_failed" });
+      }
+    }
 
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
