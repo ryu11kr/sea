@@ -56,3 +56,6 @@ create policy "sea_share_update_sender_cancel"
   to authenticated
   using (from_user_id = auth.uid() and status = 'pending')
   with check (status = 'cancelled');
+
+-- 실시간 공유 알림(선택): SQL Editor에서 한 번 더 Run
+-- alter publication supabase_realtime add table public.sea_share_requests;

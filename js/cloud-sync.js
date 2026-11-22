@@ -415,12 +415,12 @@ async function initGoogleAuthUi(client, cfg) {
 
   let lastForegroundShareCheck = 0;
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible" || !cfg.enabled) return;
+    if (document.visibilityState !== "visible") return;
     const now = Date.now();
     client.auth.getSession().then(({ data: sessionData }) => {
       const userId = sessionData.session?.user?.id;
-      if (userId) scheduleCloudPush(client, userId, 500);
-      if (!userId || now - lastForegroundShareCheck < 2500) return;
+      if (userId && cfg.enabled) scheduleCloudPush(client, userId, 500);
+      if (!userId || now - lastForegroundShareCheck < 800) return;
       lastForegroundShareCheck = now;
       const email = resolveSessionEmail(sessionData.session?.user);
       const incoming = document.querySelector("#sea-share-incoming");

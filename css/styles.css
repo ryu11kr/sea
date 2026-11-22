@@ -707,6 +707,32 @@ body.sea-app {
   font-size: clamp(1.08rem, 4vw, 1.2rem);
 }
 
+.sea-share-nudge {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1200;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  background: var(--brand-tint);
+  border-top: 2px solid var(--brand-deep);
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.12);
+}
+
+.sea-share-nudge[hidden] {
+  display: none !important;
+}
+
+.sea-share-nudge-text {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .sea-share-popup {
   width: min(24rem, calc(100% - 1.5rem));
 }

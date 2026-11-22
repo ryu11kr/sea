@@ -15,9 +15,19 @@ let popupCurrentRequest = null;
 let sharePopupBound = false;
 let shareHintBound = false;
 
-const SHARE_POLL_MS = 5_000;
+const SHARE_POLL_MS = 3_000;
 /** @type {number | null} */
 let sharePollTimer = null;
+/** @type {import("@supabase/supabase-js").SupabaseClient | null} */
+let sharePollClient = null;
+/** @type {(() => Promise<void>) | null} */
+let sharePollTick = null;
+/** @type {import("@supabase/supabase-js").RealtimeChannel | null} */
+let shareRealtimeChannel = null;
+let sharePollGlobalsBound = false;
+let shareNudgeBound = false;
+/** @type {{ row: { id: string, from_email: string }, client: import("@supabase/supabase-js").SupabaseClient, userEmail: string, listEl: HTMLElement | null, setStatus: (text: string) => void } | null} */
+let shareNudgeContext = null;
 let modalScrollLockY = 0;
 let modalScrollLockBound = false;
 
@@ -60,11 +70,56 @@ function bindSeaShareModalScrollLock() {
   }
 }
 
+function stopIncomingShareRealtime() {
+  if (shareRealtimeChannel && sharePollClient) {
+    void sharePollClient.removeChannel(shareRealtimeChannel);
+  }
+  shareRealtimeChannel = null;
+}
+
+function startIncomingShareRealtime(client, onDbChange) {
+  stopIncomingShareRealtime();
+  const channel = client
+    .channel("sea-share-incoming-watch")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "sea_share_requests" },
+      () => onDbChange()
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "sea_share_requests" },
+      () => onDbChange()
+    )
+    .subscribe((status) => {
+      if (status === "CHANNEL_ERROR") {
+        console.warn("sea share realtime: publication 미설정 시 폴링만 사용");
+      }
+    });
+  shareRealtimeChannel = channel;
+}
+
+function bindSharePollGlobals() {
+  if (sharePollGlobalsBound) return;
+  sharePollGlobalsBound = true;
+  const runTick = () => {
+    if (sharePollTick) void sharePollTick();
+  };
+  window.addEventListener("focus", runTick);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") runTick();
+  });
+}
+
 export function stopIncomingSharePolling() {
   if (sharePollTimer != null) {
     clearInterval(sharePollTimer);
     sharePollTimer = null;
   }
+  stopIncomingShareRealtime();
+  sharePollClient = null;
+  sharePollTick = null;
+  syncSharePendingNudge([], null, "", null, () => {});
 }
 
 /**
@@ -74,6 +129,8 @@ export function stopIncomingSharePolling() {
  */
 export function startIncomingSharePolling(client, setStatus) {
   stopIncomingSharePolling();
+  bindSharePollGlobals();
+  sharePollClient = client;
 
   const tick = async () => {
     if (document.visibilityState !== "visible") return;
@@ -88,10 +145,14 @@ export function startIncomingSharePolling(client, setStatus) {
     }
   };
 
+  sharePollTick = tick;
   void tick();
   sharePollTimer = window.setInterval(() => {
     void tick();
   }, SHARE_POLL_MS);
+  startIncomingShareRealtime(client, () => {
+    void tick();
+  });
 }
 
 /**
@@ -501,6 +562,60 @@ async function handleShareActionError(err, requestId, client, userEmail, listEl,
  * @param {(text: string) => void} setStatus
  * @param {string | null} preferRequestId
  */
+function openSharePopupForRow(row, client, userEmail, listEl, setStatus) {
+  const dialog = document.querySelector("#sea-share-popup");
+  const bodyEl = document.querySelector("#sea-share-popup-body");
+  if (!dialog || !bodyEl || !row) return false;
+  popupCurrentRequest = { id: String(row.id), from_email: row.from_email };
+  resetSharePopupBusyUi();
+  bodyEl.textContent = `${row.from_email} 님이 바다 포인트·물때 정보를 공유했습니다.`;
+  bindSharePopupOnce(client, userEmail, listEl, setStatus);
+  bindSeaShareModalScrollLock();
+  try {
+    if (dialog.open) dialog.close();
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      throw new Error("no_dialog");
+    }
+  } catch {
+    showSeaShareHint(`${row.from_email} 님이 바다 포인트를 공유했습니다.`);
+    return false;
+  }
+  syncSeaShareModalScrollLock();
+  syncSharePendingNudge([], client, userEmail, listEl, setStatus);
+  return dialog.open;
+}
+
+function syncSharePendingNudge(pendingRows, client, userEmail, listEl, setStatus) {
+  const bar = document.querySelector("#sea-share-nudge");
+  const textEl = document.querySelector("#sea-share-nudge-text");
+  const openBtn = document.querySelector("#sea-share-nudge-open");
+  const dialog = document.querySelector("#sea-share-popup");
+  if (!bar || !textEl || !openBtn) return;
+
+  const dismissed = getDismissedPopupIds();
+  const row = (pendingRows || []).find((r) => r?.id && !dismissed.has(String(r.id)));
+  if (!row || dialog?.open) {
+    bar.hidden = true;
+    shareNudgeContext = null;
+    return;
+  }
+
+  bar.hidden = false;
+  textEl.textContent = `${row.from_email} 님이 포인트를 공유했습니다.`;
+  shareNudgeContext = { row, client, userEmail, listEl, setStatus };
+
+  if (!shareNudgeBound) {
+    shareNudgeBound = true;
+    openBtn.addEventListener("click", () => {
+      const ctx = shareNudgeContext;
+      if (!ctx?.row) return;
+      openSharePopupForRow(ctx.row, ctx.client, ctx.userEmail, ctx.listEl, ctx.setStatus);
+    });
+  }
+}
+
 function maybeShowSharePopup(pendingRows, client, userEmail, listEl, setStatus, preferRequestId) {
   const dialog = document.querySelector("#sea-share-popup");
   const bodyEl = document.querySelector("#sea-share-popup-body");
@@ -529,23 +644,11 @@ function maybeShowSharePopup(pendingRows, client, userEmail, listEl, setStatus, 
   if (dismissed.has(String(row.id)) && !forceFromUrl) return;
   if (dialog.open && popupCurrentRequest?.id === row.id) return;
 
-  popupCurrentRequest = { id: String(row.id), from_email: row.from_email };
-  resetSharePopupBusyUi();
-  bodyEl.textContent = `${row.from_email} 님이 바다 포인트·물때 정보를 공유했습니다.`;
-  bindSharePopupOnce(client, userEmail, listEl, setStatus);
-  bindSeaShareModalScrollLock();
-  try {
-    if (typeof dialog.showModal === "function") {
-      dialog.showModal();
-    } else {
-      throw new Error("no_dialog");
-    }
-  } catch {
-    showSeaShareHint(
-      `${row.from_email} 님이 바다 포인트를 공유했습니다.\n\n아래 「수락」 버튼을 눌러 주세요.`
-    );
+  const opened = openSharePopupForRow(row, client, userEmail, listEl, setStatus);
+  if (!opened) {
+    syncSharePendingNudge(pendingRows, client, userEmail, listEl, setStatus);
+    return;
   }
-  syncSeaShareModalScrollLock();
 
   const shareTeaser = document.querySelector("#sea-share-teaser");
   if (shareTeaser && !shareTeaser.hidden && !shareTeaser.open) {
@@ -717,7 +820,7 @@ export async function refreshIncomingShareRequests(
     console.warn("share-incoming API", apiErr);
   }
 
-  if (error) {
+  if (error && !data.length) {
     if (isShareTableMissingError(error)) {
       notifyShareTableMissing();
     } else {
@@ -730,6 +833,7 @@ export async function refreshIncomingShareRequests(
     }
     pendingShareIncomingCount = 0;
     syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null);
+    syncSharePendingNudge([], client, userEmail, listEl, setStatus);
     return;
   }
 
@@ -751,6 +855,7 @@ export async function refreshIncomingShareRequests(
   }
 
   maybeShowSharePopup(data, client, userEmail, listEl, setStatus, preferRequestId);
+  syncSharePendingNudge(data, client, userEmail, listEl, setStatus);
 
   if (!listEl) return;
   for (const row of data) {
