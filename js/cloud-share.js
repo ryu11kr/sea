@@ -570,94 +570,32 @@ function bindSharePopupOnce(client, userEmail, listEl, setStatus) {
  * @param {(text: string) => void} setStatus
  */
 /**
- * 버스첩 동일 직접 조회 + canonical + API 병합
+ * 버스첩과 동일 — pending + to_email (normalize)
  * @param {import("@supabase/supabase-js").SupabaseClient} client
- * @param {string} email
- * @param {string | null} userId
+ * @param {string} emailKey
  */
-async function loadPendingIncomingShares(client, email, userId) {
-  const keys = new Set();
-  const plain = normalizeEmail(email);
-  const canon = canonicalShareEmail(email);
-  if (plain) keys.add(plain);
-  if (canon) keys.add(canon);
-
-  /** @type {Map<string, { id: string, from_email: string, created_at?: string }>} */
-  const byId = new Map();
-  /** @type {{ checkedAs?: string } | null} */
-  let apiMeta = null;
-
-  const mergeRows = (rows) => {
-    for (const row of rows || []) {
-      if (!row?.id) continue;
-      if (userId && row.from_user_id === userId) continue;
-      const to = row.to_email;
-      if (to && !shareEmailsMatch(to, plain) && !shareEmailsMatch(to, canon)) continue;
-      byId.set(String(row.id), {
-        id: row.id,
-        from_email: row.from_email,
-        created_at: row.created_at,
-      });
-    }
-  };
-
-  try {
-    const json = await authFetch("share-incoming");
-    apiMeta = { checkedAs: json?.checkedAs || json?.loginEmail || plain };
-    mergeRows(
-      (json?.requests || []).map((r) => ({
-        ...r,
-        to_email: plain,
-        from_user_id: null,
-      }))
-    );
-  } catch (apiErr) {
-    console.warn("share-incoming API", apiErr);
-  }
-
-  for (const key of keys) {
-    const { data, error } = await client
-      .from("sea_share_requests")
-      .select("id, from_email, created_at, to_email, from_user_id")
-      .eq("status", "pending")
-      .eq("to_email", key)
-      .order("created_at", { ascending: false });
-    if (!error && data?.length) mergeRows(data);
-    if (error && isShareTableMissingError(error)) throw error;
-  }
-
-  if (byId.size === 0) {
-    const { data, error } = await client
-      .from("sea_share_requests")
-      .select("id, from_email, created_at, to_email, from_user_id")
-      .eq("status", "pending")
-      .order("created_at", { ascending: false });
-    if (error) return { data: [], error };
-    mergeRows(data);
-  }
-
-  const sorted = [...byId.values()].sort(
-    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-  );
-  return { data: sorted, error: null, apiMeta };
+async function fetchPendingByEmail(client, emailKey) {
+  return client
+    .from("sea_share_requests")
+    .select("id, from_email, created_at")
+    .eq("status", "pending")
+    .eq("to_email", emailKey)
+    .order("created_at", { ascending: false });
 }
 
 export async function refreshIncomingForSession(client, session, listEl, setStatus) {
-  let email = resolveSessionEmail(session?.user);
-  if (!email) {
-    const raw = String(session?.user?.email || "").trim();
-    if (raw) email = normalizeEmail(raw);
-  }
-  if (!email) {
+  const raw = String(session?.user?.email || resolveSessionEmail(session?.user) || "").trim();
+  if (!raw) {
     try {
       const { data: userData } = await client.auth.getUser();
-      email = resolveSessionEmail(userData.user) || normalizeEmail(userData.user?.email || "");
+      const e = userData.user?.email || resolveSessionEmail(userData.user);
+      if (e) await refreshIncomingShareRequests(client, e, listEl, setStatus);
     } catch {
       /* ignore */
     }
+    return;
   }
-  if (!email) return;
-  await refreshIncomingShareRequests(client, email, listEl, setStatus);
+  await refreshIncomingShareRequests(client, raw, listEl, setStatus);
 }
 
 export async function refreshIncomingShareRequests(
@@ -667,8 +605,9 @@ export async function refreshIncomingShareRequests(
   setStatus,
   preferRequestId = null
 ) {
-  const email = canonicalShareEmail(userEmail);
-  if (!email) {
+  const plain = normalizeEmail(userEmail);
+  const canon = canonicalShareEmail(userEmail);
+  if (!plain) {
     if (listEl) {
       listEl.hidden = true;
       listEl.replaceChildren();
@@ -678,28 +617,56 @@ export async function refreshIncomingShareRequests(
   }
 
   const { data: sess } = await client.auth.getSession();
-  const userId = sess.session?.user?.id || null;
 
+  /** @type {Array<{ id: string, from_email: string, created_at?: string }>} */
   let data = [];
+  /** @type {unknown} */
   let error = null;
+  /** @type {{ checkedAs?: string, debug?: { pendingTotal?: number, matched?: number, sampleRecipients?: string[] } } | null} */
   let apiMeta = null;
+
+  const res = await fetchPendingByEmail(client, plain);
+  if (res.error) error = res.error;
+  else if (res.data?.length) data = res.data;
+
+  if (!data.length && canon && canon !== plain) {
+    const res2 = await fetchPendingByEmail(client, canon);
+    if (res2.error && !error) error = res2.error;
+    else if (res2.data?.length) data = res2.data;
+  }
+
   try {
-    const result = await loadPendingIncomingShares(client, email, userId);
-    data = result.data;
-    error = result.error;
-    apiMeta = result.apiMeta;
-  } catch (err) {
-    error = err;
+    const json = await authFetch("share-incoming");
+    apiMeta = { checkedAs: json?.checkedAs, debug: json?.debug };
+    if (Array.isArray(json?.requests) && json.requests.length) {
+      const byId = new Map(data.map((r) => [String(r.id), r]));
+      for (const r of json.requests) {
+        if (r?.id) byId.set(String(r.id), r);
+      }
+      data = [...byId.values()];
+    } else if (!data.length && json?.debug) {
+      apiMeta.debug = json.debug;
+    }
+  } catch (apiErr) {
+    console.warn("share-incoming API", apiErr);
   }
 
   const checkedEl = document.querySelector("#sea-share-checked-as");
   if (checkedEl) {
-    const label = apiMeta?.checkedAs || email;
+    const label = apiMeta?.checkedAs || plain;
     if (signedInForShare()) {
       checkedEl.hidden = false;
-      checkedEl.textContent = data.length
-        ? `공유 요청 ${data.length}건 (로그인: ${label})`
-        : `로그인: ${label} — 대기 요청 없음. 보낸 지메일과 같은지 확인 후 «공유 요청 확인»을 눌러 주세요.`;
+      if (data.length) {
+        checkedEl.textContent = `공유 요청 ${data.length}건 (로그인: ${label})`;
+      } else {
+        const d = apiMeta?.debug;
+        if (d && d.pendingTotal > 0) {
+          const samples = (d.sampleRecipients || []).join(", ");
+          checkedEl.textContent = `로그인: ${label}. DB에 대기 ${d.pendingTotal}건 있음. 받는 주소: ${samples} — 보낼 때 ${label} 로 보냈는지 확인해 주세요.`;
+        } else {
+          checkedEl.textContent = `로그인: ${label}. DB에 대기 요청 없음 — 보내는 쪽에서 물때첩으로 다시 공유해 주세요.`;
+        }
+      }
     } else {
       checkedEl.hidden = true;
     }

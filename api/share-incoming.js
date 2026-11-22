@@ -2,7 +2,30 @@
 
 import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
 import { getAdminClient } from "./_lib/admin.js";
-import { canonicalShareEmail, shareEmailsMatch } from "./_lib/email.js";
+import { canonicalShareEmail, normalizeEmail, shareEmailsMatch } from "./_lib/email.js";
+
+function maskEmail(email) {
+  const n = normalizeEmail(email);
+  if (!n.includes("@")) return "***";
+  const at = n.indexOf("@");
+  const local = n.slice(0, at);
+  const domain = n.slice(at + 1);
+  const head = local.length <= 2 ? local : `${local.slice(0, 2)}***`;
+  return `${head}@${domain}`;
+}
+
+function recipientMatchesRow(row, user) {
+  const mine = [
+    normalizeEmail(resolveUserEmail(user)),
+    canonicalShareEmail(resolveUserEmail(user)),
+  ].filter(Boolean);
+  if (!mine.length) return false;
+  for (const m of mine) {
+    if (normalizeEmail(row.to_email) === m) return true;
+    if (shareEmailsMatch(row.to_email, m)) return true;
+  }
+  return false;
+}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -23,7 +46,8 @@ export default async function handler(req, res) {
   }
 
   const myCanon = canonicalShareEmail(resolveUserEmail(user));
-  if (!myCanon) {
+  const myPlain = normalizeEmail(resolveUserEmail(user));
+  if (!myCanon && !myPlain) {
     return res.status(401).json({ error: "email_missing" });
   }
 
@@ -43,13 +67,23 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "list_failed" });
   }
 
-  const requests = (data || [])
-    .filter((row) => row.from_user_id !== user.id && shareEmailsMatch(row.to_email, myCanon))
+  const allPending = data || [];
+  const requests = allPending
+    .filter((row) => row.from_user_id !== user.id && recipientMatchesRow(row, user))
     .map(({ id, from_email, created_at }) => ({ id, from_email, created_at }));
+
+  const debug = {
+    pendingTotal: allPending.length,
+    matched: requests.length,
+    checkedPlain: myPlain || null,
+    checkedCanon: myCanon || null,
+    sampleRecipients: [...new Set(allPending.map((r) => maskEmail(r.to_email)))].slice(0, 5),
+  };
 
   return res.status(200).json({
     requests,
-    checkedAs: myCanon,
+    checkedAs: myCanon || myPlain,
     loginEmail: resolveUserEmail(user) || null,
+    debug,
   });
 }
