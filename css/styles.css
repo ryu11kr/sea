@@ -61,6 +61,8 @@ body.sea-app {
     max(0.85rem, env(safe-area-inset-right, 0px))
     calc(2.75rem + env(safe-area-inset-bottom, 0px))
     max(0.85rem, env(safe-area-inset-left, 0px));
+  container-type: inline-size;
+  container-name: sea-home;
 }
 
 .app-name {
@@ -72,11 +74,28 @@ body.sea-app {
   line-height: 1.15;
 }
 
-/* 긴 부제가 있는 홈 제목 — 좁은 화면에서도 한 줄 */
+/* 긴 홈 제목 — 컨테이너 너비에 맞춰 한 줄·가독성 균형 */
 body.sea-app .sea-wrap > .app-name {
-  font-size: clamp(0.8rem, 3.35vw, 1.48rem);
-  letter-spacing: -0.03em;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   white-space: nowrap;
+  letter-spacing: -0.04em;
+  /* ≈24자 한 줄: (콘텐츠 너비 ÷ 15.5), 최소 1.12rem·최대 1.72rem */
+  font-size: clamp(1.12rem, calc((100vw - 2.1rem) / 15.5), 1.72rem);
+}
+
+@supports (width: 1cqi) {
+  body.sea-app .sea-wrap > .app-name {
+    font-size: clamp(1.12rem, calc((100cqi - 0.35rem) / 15.5), 1.72rem);
+  }
+}
+
+@media (min-width: 420px) {
+  body.sea-app .sea-wrap > .app-name {
+    font-size: clamp(1.35rem, calc((100cqi - 0.35rem) / 18), 1.82rem);
+    letter-spacing: -0.03em;
+  }
 }
 
 .app-guide {
