@@ -101,13 +101,73 @@
               </button>
             </div>
           </details>
+
+          <details id="sea-share-teaser" class="home-more panel-lite sea-share-teaser" hidden>
+            <summary>포인트·물때 공유</summary>
+            <p class="sea-share-help">
+              같은 구글 로그인을 쓰는 지인에게 <strong>내 바다 포인트 목록</strong>을 보냅니다. 받는
+              사람이 수락하면 목록에 합쳐집니다.
+            </p>
+            <div id="sea-share-panel" class="sea-share-panel">
+              <input
+                id="sea-share-to-email"
+                class="text-field-input sea-share-email"
+                type="text"
+                inputmode="email"
+                autocomplete="username"
+                placeholder="지메일 아이디만 입력"
+                aria-label="지메일 아이디"
+              />
+              <button type="button" id="sea-share-send" class="big-btn secondary">
+                포인트 공유하기
+              </button>
+              <div id="sea-share-incoming" class="sea-share-incoming" hidden aria-live="polite"></div>
+            </div>
+          </details>
+
+          <details
+            id="sea-account-delete-teaser"
+            class="home-more panel-lite sea-account-delete-teaser"
+            hidden
+          >
+            <summary>서비스 탈퇴</summary>
+            <p class="sea-account-delete-msg">
+              탈퇴하면 구글 로그인 연동과 클라우드의 <strong>바다 포인트</strong>가 삭제되고, 이
+              기기의 포인트 목록도 지워집니다. 복구할 수 없습니다. (Google 계정 자체는 삭제되지
+              않습니다.)
+            </p>
+            <button type="button" id="sea-account-delete-btn" class="big-btn ghost danger-text">
+              서비스 탈퇴하기
+            </button>
+          </details>
         </div>
 
         <div class="home-install-block">
           <button id="install-btn" type="button" class="big-btn install-btn" hidden>
             앱 설치하기
           </button>
+          <button id="app-share-btn" type="button" class="big-btn secondary">앱 공유하기</button>
         </div>
+      </section>
+
+      <section
+        id="view-app-share"
+        class="view-app-share panel-lite"
+        hidden
+        aria-labelledby="app-share-heading"
+      >
+        <h2 id="app-share-heading" class="app-share-heading">앱 공유하기</h2>
+        <p class="app-share-lede">
+          QR 코드나 주소로 <strong>물때첩</strong>을 가족·지인에게 알려 줄 수 있습니다.
+        </p>
+        <figure class="app-share-qr-figure">
+          <img id="app-share-qr" class="app-share-qr" width="512" height="512" alt="" decoding="async" />
+          <figcaption class="app-share-qr-cap">QR 코드로 앱 열기</figcaption>
+        </figure>
+        <p id="app-share-url" class="app-share-url" lang="zxx"></p>
+        <button type="button" id="btn-back-from-app-share" class="big-btn back-btn back-btn-bottom">
+          ← 포인트 목록
+        </button>
       </section>
 
       <!-- 지도 등록 -->
@@ -186,6 +246,30 @@
         </div>
       </section>
     </div>
+
+    <div id="sea-share-busy" class="sea-share-busy" hidden aria-live="polite" aria-busy="true">
+      <p id="sea-share-busy-text" class="sea-share-busy-text"></p>
+    </div>
+
+    <dialog
+      id="sea-share-popup"
+      class="add-time-dialog sea-share-popup"
+      aria-labelledby="sea-share-popup-title"
+    >
+      <h2 id="sea-share-popup-title" class="dialog-title">포인트 공유</h2>
+      <p id="sea-share-popup-body" class="dialog-help"></p>
+      <div class="dialog-actions sea-share-popup-actions">
+        <button type="button" id="sea-share-popup-accept" class="big-btn primary">수락</button>
+        <button type="button" id="sea-share-popup-reject" class="big-btn ghost">거절</button>
+        <button type="button" id="sea-share-popup-later" class="big-btn ghost">나중에</button>
+      </div>
+    </dialog>
+
+    <dialog id="sea-share-hint-dialog" class="add-time-dialog sea-share-hint-dialog">
+      <h2 class="dialog-title">알림</h2>
+      <p id="sea-share-hint-body" class="dialog-help"></p>
+      <button type="button" id="sea-share-hint-ok" class="big-btn primary">확인</button>
+    </dialog>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

@@ -4,6 +4,18 @@ import {
   runFullCloudSync,
   setCloudSyncStatusCallback,
 } from "./cloud-sync-data.js";
+import {
+  authFetch,
+  hideShareAcceptBusy,
+  initSeaShareUi,
+  refreshIncomingShareRequests,
+  showShareAcceptBusy,
+  startIncomingSharePolling,
+  stopIncomingSharePolling,
+  yieldToPaint,
+} from "./cloud-share.js";
+
+let accountDeleteUiBound = false;
 
 const DEFAULT_CLOUD_SYNC_CONFIG = {
   enabled: true,
@@ -186,6 +198,65 @@ function startSessionCloudSync(session, cfg) {
   runFullCloudSync(supabaseClient, userId).catch((err) => console.error(err));
 }
 
+function bindAccountDeleteUi(client, renderSession) {
+  if (accountDeleteUiBound) return;
+  accountDeleteUiBound = true;
+
+  const btn = document.querySelector("#sea-account-delete-btn");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    const ok = window.confirm(
+      "정말 서비스를 탈퇴하시겠습니까?\n\n" +
+        "· 구글 로그인 연동이 삭제됩니다.\n" +
+        "· 클라우드에 저장된 바다 포인트가 모두 삭제됩니다.\n" +
+        "· 이 기기의 포인트 목록도 지워집니다.\n\n" +
+        "삭제 후에는 복구할 수 없습니다."
+    );
+    if (!ok) return;
+
+    btn.disabled = true;
+    showShareAcceptBusy("서비스 탈퇴를 처리하는 중입니다…", null);
+    await yieldToPaint();
+    try {
+      showShareAcceptBusy("클라우드 데이터를 삭제하는 중입니다…", null);
+      await yieldToPaint();
+      await authFetch("account-delete", { method: "POST", body: JSON.stringify({}) });
+      showShareAcceptBusy("이 기기의 데이터를 정리하는 중입니다…", null);
+      await yieldToPaint();
+      stopIncomingSharePolling();
+      cloudSaveListenerBound = false;
+      if (typeof window.seaAppClearAllLocalData === "function") {
+        window.seaAppClearAllLocalData();
+      }
+      try {
+        await client.auth.signOut({ scope: "global" });
+      } catch {
+        await client.auth.signOut({ scope: "local" });
+      }
+      purgeSupabaseAuthKeys();
+      await renderSession(null);
+      hideShareAcceptBusy();
+      if (typeof window.setSeaStatus === "function") {
+        window.setSeaStatus("서비스 탈퇴가 완료되었습니다.");
+      }
+    } catch (err) {
+      hideShareAcceptBusy();
+      console.error(err);
+      const code = err?.code || err?.message;
+      let msg = "서비스 탈퇴에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+      if (code === "login_required") msg = "다시 로그인한 뒤 탈퇴를 진행해 주세요.";
+      if (code === "server_not_configured") {
+        msg = "Vercel에 SUPABASE_SERVICE_ROLE_KEY를 넣고 Redeploy 해 주세요.";
+      }
+      if (typeof window.setSeaStatus === "function") window.setSeaStatus(msg);
+    } finally {
+      hideShareAcceptBusy();
+      btn.disabled = false;
+    }
+  });
+}
+
 async function initGoogleAuthUi(client, cfg) {
   const authRoot = document.querySelector("#cloud-sync-auth");
   const statusEl = document.querySelector("#cloud-sync-auth-status");
@@ -207,17 +278,57 @@ async function initGoogleAuthUi(client, cfg) {
     syncEl.textContent = text || "";
   });
 
+  function setAuthButtonVisible(btn, visible) {
+    if (!btn) return;
+    btn.hidden = !visible;
+    btn.style.display = visible ? "" : "none";
+  }
+
   async function renderSession(session) {
     const signedIn = Boolean(session?.user);
-    loginBtn.hidden = signedIn;
-    logoutBtn.hidden = !signedIn;
+    setAuthButtonVisible(loginBtn, !signedIn);
+    setAuthButtonVisible(logoutBtn, signedIn);
     loginBtn.disabled = false;
     if (introEl) introEl.hidden = signedIn;
 
+    const deleteTeaser = document.querySelector("#sea-account-delete-teaser");
+    if (deleteTeaser) {
+      deleteTeaser.hidden = !signedIn;
+      if (!signedIn) deleteTeaser.open = false;
+    }
+
     if (signedIn) {
       statusEl.textContent = formatSignedInLabel(session.user);
+      bindAccountDeleteUi(client, renderSession);
       if (cfg.enabled) startSessionCloudSync(session, cfg);
+      else if (syncEl) syncEl.hidden = true;
+      const setShareStatus = (text) => {
+        if (!syncEl) return;
+        if (!text) {
+          syncEl.hidden = true;
+          syncEl.textContent = "";
+          return;
+        }
+        syncEl.hidden = false;
+        syncEl.textContent = text;
+      };
+      initSeaShareUi(client, session, setShareStatus);
+      void refreshIncomingShareRequests(
+        client,
+        session.user.email || "",
+        document.querySelector("#sea-share-incoming"),
+        setShareStatus
+      );
+      startIncomingSharePolling(client, setShareStatus);
     } else {
+      stopIncomingSharePolling();
+      const shareTeaser = document.querySelector("#sea-share-teaser");
+      const incomingEl = document.querySelector("#sea-share-incoming");
+      if (shareTeaser) shareTeaser.hidden = true;
+      if (incomingEl) {
+        incomingEl.hidden = true;
+        incomingEl.replaceChildren();
+      }
       cloudSaveListenerBound = false;
       if (introEl) introEl.hidden = false;
       statusEl.textContent = "구글로 로그인하면 포인트를 클라우드에 보관할 수 있습니다.";
@@ -286,6 +397,7 @@ async function initGoogleAuthUi(client, cfg) {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !cfg.enabled) return;
     client.auth.getSession().then(({ data }) => {
+      renderSession(data.session?.user ? data.session : null).catch(() => {});
       const userId = data.session?.user?.id;
       if (userId) runFullCloudSync(client, userId).catch(() => {});
     });
@@ -319,6 +431,7 @@ async function initCloudSyncShell() {
         storage: createAuthStorage(),
       },
     });
+    window.getSupabaseClient = () => supabaseClient;
     await initGoogleAuthUi(supabaseClient, cloudSyncCfg);
   }
 }

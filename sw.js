@@ -11,6 +11,7 @@ const APP_SHELL = [
   "./js/app.js",
   "./js/pwa-update.js",
   "./js/cloud-sync.js",
+  "./js/cloud-share.js",
   "./js/cloud-sync-data.js",
   "./cloud-sync.config.json",
   "./version.json",

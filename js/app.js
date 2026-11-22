@@ -31,9 +31,13 @@ init();
 function init() {
   if (!document.body.classList.contains("sea-app")) return;
   loadState();
+  window.dispatchEvent(
+    new CustomEvent("sea-points-changed", { detail: { count: seaPoints.length } })
+  );
   bindUi();
   initSeaPwaUpdate().catch(() => {});
   bindInstall();
+  bindAppShareUi();
   exposeSeaAppApi();
   showListView();
   renderPointList();
@@ -54,6 +58,9 @@ function saveState() {
   if (!window.__seaCloudSyncApplying) {
     window.dispatchEvent(new Event("sea-local-state-saved"));
   }
+  window.dispatchEvent(
+    new CustomEvent("sea-points-changed", { detail: { count: seaPoints.length } })
+  );
 }
 
 function exposeSeaAppApi() {
@@ -78,6 +85,18 @@ function exposeSeaAppApi() {
     }
   };
   window.setSeaStatus = setStatus;
+  window.seaAppClearAllLocalData = () => {
+    seaPoints = [];
+    activePointId = null;
+    editPointId = null;
+    localStorage.removeItem(SEA_STORAGE_KEY);
+    renderPointList();
+    showListView();
+    setStatus("");
+    window.dispatchEvent(
+      new CustomEvent("sea-points-changed", { detail: { count: 0 } })
+    );
+  };
 }
 
 function bindUi() {
@@ -106,11 +125,18 @@ function bindUi() {
   });
 }
 
+function collapseListPanelDetails() {
+  document.querySelectorAll("#view-list details[open]").forEach((el) => {
+    el.open = false;
+  });
+}
+
 function showListView() {
   destroyAllMaps();
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.setAttribute("hidden", "");
+  $("#view-app-share")?.setAttribute("hidden", "");
   $("#app-home-divider")?.setAttribute("hidden", "");
   renderPointList();
 }
@@ -120,6 +146,7 @@ function showMapView() {
   $("#view-list")?.setAttribute("hidden", "");
   $("#view-map")?.removeAttribute("hidden");
   $("#view-detail")?.setAttribute("hidden", "");
+  $("#view-app-share")?.setAttribute("hidden", "");
   requestAnimationFrame(() => initMapIfNeeded());
 }
 
@@ -133,6 +160,7 @@ function showDetailView(pointId) {
   }
   $("#view-list")?.setAttribute("hidden", "");
   $("#view-map")?.setAttribute("hidden", "");
+  $("#view-app-share")?.setAttribute("hidden", "");
   $("#view-detail")?.removeAttribute("hidden");
   $("#detail-point-name").textContent = point.name;
   $("#detail-address").textContent = point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
@@ -727,5 +755,60 @@ function bindInstall() {
     await deferred.userChoice;
     deferred = null;
     if (btn) btn.hidden = true;
+  });
+}
+
+function getAppPublicShareUrl() {
+  const canonical = document.querySelector('link[rel="canonical"]')?.href?.trim();
+  if (canonical) return canonical;
+  const u = new URL(location.href);
+  u.search = "";
+  u.hash = "";
+  return u.href;
+}
+
+function qrCodeImageUrl(text, size = 512) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=14&data=${encodeURIComponent(text)}`;
+}
+
+function formatAppShareUrlDisplay(absoluteUrl) {
+  try {
+    const host = new URL(absoluteUrl).hostname;
+    if (host) return host;
+  } catch {
+    /* ignore */
+  }
+  return absoluteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+function renderAppSharePage() {
+  const url = getAppPublicShareUrl();
+  const displayUrl = formatAppShareUrlDisplay(url);
+  const urlEl = $("#app-share-url");
+  const qrImg = $("#app-share-qr");
+  if (urlEl) urlEl.textContent = displayUrl;
+  if (qrImg) {
+    qrImg.src = qrCodeImageUrl(url, 512);
+    qrImg.alt = `물때첩 앱 주소 QR 코드 — ${displayUrl}`;
+  }
+}
+
+function showAppShareView() {
+  collapseListPanelDetails();
+  $("#view-list")?.setAttribute("hidden", "");
+  $("#view-map")?.setAttribute("hidden", "");
+  $("#view-detail")?.setAttribute("hidden", "");
+  $("#view-app-share")?.removeAttribute("hidden");
+  renderAppSharePage();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function bindAppShareUi() {
+  $("#app-share-btn")?.addEventListener("click", () => {
+    showAppShareView();
+  });
+  $("#btn-back-from-app-share")?.addEventListener("click", () => {
+    showListView();
+    setStatus("");
   });
 }

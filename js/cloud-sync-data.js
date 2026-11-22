@@ -3,6 +3,11 @@
 export const SEA_STORAGE_KEY = "sea-points-v1";
 export const CLOUD_MAX_POINTS = 40;
 
+export function getLocalPointCount() {
+  const state = readLocalPoints();
+  return Array.isArray(state.points) ? state.points.length : 0;
+}
+
 let uploadTimer = null;
 let syncInFlight = null;
 /** @type {((text: string) => void) | null} */
