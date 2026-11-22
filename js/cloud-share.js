@@ -228,6 +228,12 @@ export function resolveSessionEmail(user) {
 }
 
 let pendingShareIncomingCount = 0;
+let shareRefreshBtnBound = false;
+
+function signedInForShare() {
+  const logoutBtn = document.querySelector("#cloud-sync-logout");
+  return Boolean(logoutBtn && !logoutBtn.hidden);
+}
 
 function apiBase() {
   return new URL("./api/", window.location.href).href;
@@ -454,7 +460,17 @@ function maybeShowSharePopup(pendingRows, client, userEmail, listEl, setStatus, 
   bodyEl.textContent = `${row.from_email} 님이 바다 포인트·물때 정보를 공유했습니다.`;
   bindSharePopupOnce(client, userEmail, listEl, setStatus);
   bindSeaShareModalScrollLock();
-  dialog.showModal();
+  try {
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      throw new Error("no_dialog");
+    }
+  } catch {
+    showSeaShareHint(
+      `${row.from_email} 님이 바다 포인트를 공유했습니다.\n\n아래 「수락」 버튼을 눌러 주세요.`
+    );
+  }
   syncSeaShareModalScrollLock();
 
   const shareTeaser = document.querySelector("#sea-share-teaser");
@@ -568,6 +584,8 @@ async function loadPendingIncomingShares(client, email, userId) {
 
   /** @type {Map<string, { id: string, from_email: string, created_at?: string }>} */
   const byId = new Map();
+  /** @type {{ checkedAs?: string } | null} */
+  let apiMeta = null;
 
   const mergeRows = (rows) => {
     for (const row of rows || []) {
@@ -583,19 +601,9 @@ async function loadPendingIncomingShares(client, email, userId) {
     }
   };
 
-  for (const key of keys) {
-    const { data, error } = await client
-      .from("sea_share_requests")
-      .select("id, from_email, created_at, to_email, from_user_id")
-      .eq("status", "pending")
-      .eq("to_email", key)
-      .order("created_at", { ascending: false });
-    if (!error && data?.length) mergeRows(data);
-    if (error && isShareTableMissingError(error)) throw error;
-  }
-
   try {
     const json = await authFetch("share-incoming");
+    apiMeta = { checkedAs: json?.checkedAs || json?.loginEmail || plain };
     mergeRows(
       (json?.requests || []).map((r) => ({
         ...r,
@@ -605,6 +613,17 @@ async function loadPendingIncomingShares(client, email, userId) {
     );
   } catch (apiErr) {
     console.warn("share-incoming API", apiErr);
+  }
+
+  for (const key of keys) {
+    const { data, error } = await client
+      .from("sea_share_requests")
+      .select("id, from_email, created_at, to_email, from_user_id")
+      .eq("status", "pending")
+      .eq("to_email", key)
+      .order("created_at", { ascending: false });
+    if (!error && data?.length) mergeRows(data);
+    if (error && isShareTableMissingError(error)) throw error;
   }
 
   if (byId.size === 0) {
@@ -620,7 +639,7 @@ async function loadPendingIncomingShares(client, email, userId) {
   const sorted = [...byId.values()].sort(
     (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
   );
-  return { data: sorted, error: null };
+  return { data: sorted, error: null, apiMeta };
 }
 
 export async function refreshIncomingForSession(client, session, listEl, setStatus) {
@@ -663,12 +682,27 @@ export async function refreshIncomingShareRequests(
 
   let data = [];
   let error = null;
+  let apiMeta = null;
   try {
     const result = await loadPendingIncomingShares(client, email, userId);
     data = result.data;
     error = result.error;
+    apiMeta = result.apiMeta;
   } catch (err) {
     error = err;
+  }
+
+  const checkedEl = document.querySelector("#sea-share-checked-as");
+  if (checkedEl) {
+    const label = apiMeta?.checkedAs || email;
+    if (signedInForShare()) {
+      checkedEl.hidden = false;
+      checkedEl.textContent = data.length
+        ? `공유 요청 ${data.length}건 (로그인: ${label})`
+        : `로그인: ${label} — 대기 요청 없음. 보낸 지메일과 같은지 확인 후 «공유 요청 확인»을 눌러 주세요.`;
+    } else {
+      checkedEl.hidden = true;
+    }
   }
 
   if (error) {
@@ -773,11 +807,10 @@ let busShareTeaserListenerBound = false;
  */
 export function syncSeaShareReceiveBlock(signedIn, pendingIncoming) {
   const block = document.querySelector("#sea-share-receive-block");
-  const pending =
-    typeof pendingIncoming === "number" && Number.isFinite(pendingIncoming)
-      ? pendingIncoming
-      : pendingShareIncomingCount;
-  if (block) block.hidden = !signedIn || pending <= 0;
+  const refreshBtn = document.querySelector("#sea-share-refresh-incoming");
+  if (block) block.hidden = !signedIn;
+  if (refreshBtn) refreshBtn.hidden = !signedIn;
+  void pendingIncoming;
 }
 
 export function syncSeaShareTeaserVisibility(session, stopCount, pendingIncoming) {
@@ -843,6 +876,21 @@ export async function initSeaShareUi(client, session, setStatus) {
   syncSeaShareReceiveBlock(true, pendingShareIncomingCount);
   bindSeaShareModalScrollLock();
 
+  const refreshBtn = document.querySelector("#sea-share-refresh-incoming");
+  if (refreshBtn && !shareRefreshBtnBound) {
+    shareRefreshBtnBound = true;
+    refreshBtn.addEventListener("click", async () => {
+      refreshBtn.disabled = true;
+      setStatus?.("공유 요청 확인 중…");
+      try {
+        await refreshIncomingForSession(client, session, incomingEl, setStatus);
+      } finally {
+        refreshBtn.disabled = false;
+        setStatus?.("");
+      }
+    });
+  }
+
   if (!shareUiBound) {
     shareUiBound = true;
 
@@ -881,7 +929,9 @@ export async function initSeaShareUi(client, session, setStatus) {
           await sendShareRequestViaClient(client, userId, fromEmail, toEmail);
           sendInput.value = "";
           hideShareAcceptBusy(setStatus);
-          showSeaShareHint(`공유 요청을 보냈습니다.\n\n받는 사람: ${toEmail}`);
+          showSeaShareHint(
+            `공유 요청을 보냈습니다.\n\n받는 사람: ${toEmail}\n\n받는 분은 sea.uxpwa.com 에서 같은 지메일로 로그인한 뒤 「공유 요청 확인」을 눌러 주세요.`
+          );
         } catch (err) {
           console.error(err);
           hideShareAcceptBusy(setStatus);

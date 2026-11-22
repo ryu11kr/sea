@@ -24,6 +24,7 @@ create policy "sea_share_select_involved"
   using (
     from_user_id = auth.uid()
     or lower(to_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    or lower(to_email) = lower(coalesce(auth.email(), ''))
   );
 
 drop policy if exists "sea_share_insert_sender" on public.sea_share_requests;
@@ -33,6 +34,7 @@ create policy "sea_share_insert_sender"
   with check (
     from_user_id = auth.uid()
     and lower(to_email) <> lower(coalesce(auth.jwt() ->> 'email', ''))
+    and lower(to_email) <> lower(coalesce(auth.email(), ''))
   );
 
 drop policy if exists "sea_share_update_recipient_reject" on public.sea_share_requests;
@@ -40,7 +42,10 @@ create policy "sea_share_update_recipient_reject"
   on public.sea_share_requests for update
   to authenticated
   using (
-    lower(to_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    (
+      lower(to_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      or lower(to_email) = lower(coalesce(auth.email(), ''))
+    )
     and status = 'pending'
   )
   with check (status = 'rejected');

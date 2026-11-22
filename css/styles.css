@@ -656,6 +656,18 @@ body.sea-app {
   color: var(--brand-deep);
 }
 
+.sea-share-checked-as {
+  margin: 0.55rem 0 0;
+  font-size: 1.02rem;
+  line-height: 1.48;
+  color: var(--muted);
+}
+
+#sea-share-refresh-incoming {
+  margin-top: 0.65rem;
+  width: 100%;
+}
+
 .sea-share-send-need-points {
   margin: 0.5rem 0 0;
   font-size: 1.05rem;
