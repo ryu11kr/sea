@@ -693,8 +693,14 @@ body.sea-app {
   gap: 0.55rem;
 }
 
-.sea-share-hint-dialog {
+.sea-share-hint-dialog,
+.map-search-hint-dialog {
   width: min(22rem, calc(100% - 1.5rem));
+}
+
+.map-search-hint-dialog .dialog-help {
+  white-space: pre-line;
+  text-align: center;
 }
 
 .sea-share-hint-dialog #sea-share-hint-body {

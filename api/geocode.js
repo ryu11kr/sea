@@ -1,3 +1,197 @@
+/** @typedef {{ title: string, address: string, lat: number, lon: number }} GeoResult */
+
+/**
+ * @param {string} q
+ * @returns {string[]}
+ */
+function buildSearchVariants(q) {
+  const variants = [];
+  const add = (s) => {
+    const t = String(s || "").trim();
+    if (t && !variants.includes(t)) variants.push(t);
+  };
+
+  add(q);
+  const compact = q.replace(/\s+/g, "");
+  if (compact !== q) add(compact);
+
+  // 숫자로 끝나는 짧은 지명(아암2 → 아암2교) 등 낚시·해안 지명 보조 검색
+  if (/[0-9]$/.test(compact)) {
+    const suffixes = ["교", "대교", "방파제", "항", "선착장", "부두", "해수욕장"];
+    for (const sfx of suffixes) {
+      if (!compact.endsWith(sfx)) add(compact + sfx);
+    }
+  }
+
+  return variants.slice(0, 7);
+}
+
+/**
+ * @param {string} s
+ */
+function normKey(s) {
+  return String(s || "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+/**
+ * @param {GeoResult[]} list
+ * @param {string} q
+ * @returns {GeoResult[]}
+ */
+function dedupeAndRank(list, q) {
+  const nq = normKey(q);
+  const seen = new Set();
+  const out = [];
+
+  for (const r of list) {
+    if (!Number.isFinite(r.lat) || !Number.isFinite(r.lon)) continue;
+    const key = `${r.lat.toFixed(5)},${r.lon.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+
+  const score = (r) => {
+    const title = normKey(r.title);
+    const addr = normKey(r.address);
+    if (title === nq) return 100;
+    if (title.startsWith(nq)) return 85;
+    if (title.includes(nq)) return 70;
+    if (addr.includes(nq)) return 50;
+    return 20;
+  };
+
+  return out.sort((a, b) => score(b) - score(a)).slice(0, 12);
+}
+
+/**
+ * @param {string} kakaoKey
+ * @param {string} query
+ * @returns {Promise<GeoResult[]>}
+ */
+async function kakaoSearch(kakaoKey, query) {
+  const headers = { Authorization: `KakaoAK ${kakaoKey}` };
+  const collected = /** @type {GeoResult[]} */ ([]);
+
+  const keyword = await fetch(
+    `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15&analyze_type=similar`,
+    { headers }
+  );
+  if (keyword.ok) {
+    const data = await keyword.json();
+    for (const d of data.documents || []) {
+      collected.push({
+        title: d.place_name,
+        address: d.road_address_name || d.address_name || "",
+        lat: Number(d.y),
+        lon: Number(d.x),
+      });
+    }
+  }
+
+  const address = await fetch(
+    `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=10&analyze_type=similar`,
+    { headers }
+  );
+  if (address.ok) {
+    const data = await address.json();
+    for (const d of data.documents || []) {
+      const road = d.road_address;
+      const land = d.address;
+      const addr = road?.address_name || land?.address_name || "";
+      const lat = Number(road?.y ?? land?.y);
+      const lon = Number(road?.x ?? land?.x);
+      const title = road?.building_name || addr.split(" ").slice(-2).join(" ") || addr || query;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        collected.push({ title, address: addr, lat, lon });
+      }
+    }
+  }
+
+  return collected;
+}
+
+/**
+ * @param {string} q
+ * @returns {Promise<GeoResult[]>}
+ */
+async function nominatimSearch(q) {
+  const nom = await fetch(
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=10&countrycodes=kr`,
+    { headers: { "User-Agent": "SeaTidePWA/1.0 (sea.uxpwa.com)" } }
+  );
+  const list = await nom.json();
+  return (list || []).map((d) => ({
+    title: d.display_name.split(",")[0],
+    address: d.display_name,
+    lat: Number(d.lat),
+    lon: Number(d.lon),
+  }));
+}
+
+/**
+ * 한국 근해 bbox — 보조 검색
+ * @param {string} q
+ * @returns {Promise<GeoResult[]>}
+ */
+async function photonSearch(q) {
+  const r = await fetch(
+    `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=ko&limit=10&bbox=124.5,33,131.5,39.5`
+  );
+  if (!r.ok) return [];
+  const data = await r.json();
+  return (data.features || [])
+    .map((f) => {
+      const p = f.properties || {};
+      const name = p.name || p.street || p.city || p.locality || q;
+      const addr = [p.state, p.city, p.street, p.housenumber].filter(Boolean).join(" ");
+      const coords = f.geometry?.coordinates || [];
+      return {
+        title: String(name),
+        address: addr || String(name),
+        lat: Number(coords[1]),
+        lon: Number(coords[0]),
+      };
+    })
+    .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lon));
+}
+
+/**
+ * @param {string} q
+ * @param {string} kakaoKey
+ * @returns {Promise<{ provider: string, results: GeoResult[] }>}
+ */
+async function searchPlaces(q, kakaoKey) {
+  const variants = buildSearchVariants(q);
+  let provider = kakaoKey ? "kakao" : "nominatim";
+  const merged = /** @type {GeoResult[]} */ ([]);
+
+  if (kakaoKey) {
+    await Promise.all(
+      variants.map(async (variant) => {
+        const part = await kakaoSearch(kakaoKey, variant);
+        merged.push(...part);
+      })
+    );
+  } else {
+    for (const variant of variants) {
+      const part = await nominatimSearch(variant);
+      merged.push(...part);
+      if (merged.length >= 8) break;
+    }
+    if (merged.length === 0) {
+      const photon = await photonSearch(q);
+      merged.push(...photon);
+      if (photon.length) provider = "photon";
+    }
+  }
+
+  const results = dedupeAndRank(merged, q);
+  return { provider, results };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     res.status(405).json({ error: "method_not_allowed" });
@@ -12,36 +206,8 @@ export default async function handler(req, res) {
 
   try {
     if (q) {
-      if (kakaoKey) {
-        const r = await fetch(
-          `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(q)}&size=8`,
-          { headers: { Authorization: `KakaoAK ${kakaoKey}` } }
-        );
-        const data = await r.json();
-        const docs = (data.documents || []).map((d) => ({
-          title: d.place_name,
-          address: d.address_name || d.road_address_name,
-          lat: Number(d.y),
-          lon: Number(d.x)
-        }));
-        res.status(200).json({ provider: "kakao", results: docs });
-        return;
-      }
-
-      const nom = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=kr`,
-        { headers: { "User-Agent": "SeaTidePWA/1.0 (sea.uxpwa.com)" } }
-      );
-      const list = await nom.json();
-      res.status(200).json({
-        provider: "nominatim",
-        results: (list || []).map((d) => ({
-          title: d.display_name.split(",")[0],
-          address: d.display_name,
-          lat: Number(d.lat),
-          lon: Number(d.lon)
-        }))
-      });
+      const { provider, results } = await searchPlaces(q, kakaoKey);
+      res.status(200).json({ provider, results });
       return;
     }
 
@@ -68,7 +234,7 @@ export default async function handler(req, res) {
       const data = await rev.json();
       res.status(200).json({
         provider: "nominatim",
-        address: data.display_name || `${lat}, ${lon}`
+        address: data.display_name || `${lat}, ${lon}`,
       });
       return;
     }

@@ -112,6 +112,7 @@ function bindUi() {
       runMapSearch();
     }
   });
+  bindMapSearchHintDialog();
   $("#point-save-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     savePointFromMap();
@@ -313,6 +314,40 @@ async function refreshCenterAddress() {
   }
 }
 
+let mapSearchHintBound = false;
+
+function bindMapSearchHintDialog() {
+  if (mapSearchHintBound) return;
+  mapSearchHintBound = true;
+  const dialog = $("#map-search-hint-dialog");
+  $("#map-search-hint-ok")?.addEventListener("click", () => {
+    dialog?.close();
+    const input = $("#map-search-input");
+    input?.focus();
+    input?.select();
+  });
+  dialog?.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    dialog.close();
+    $("#map-search-input")?.focus();
+  });
+}
+
+function showMapSearchNoResultsDialog(query) {
+  const dialog = $("#map-search-hint-dialog");
+  const body = $("#map-search-hint-body");
+  if (!dialog || !body) {
+    setStatus("검색 결과가 없습니다. 다른 이름으로 다시 검색해 주세요.");
+    return;
+  }
+  body.textContent =
+    `「${query}」에 대한 검색 결과가 없습니다.\n\n` +
+    "이름을 조금 더 넣어 보시거나, 예: 아암2 → 아암2교처럼 다리·방파제·항구 이름으로 검색해 보세요.";
+  if (typeof dialog.showModal === "function" && !dialog.open) {
+    dialog.showModal();
+  }
+}
+
 async function runMapSearch() {
   const q = $("#map-search-input")?.value?.trim();
   const resultsEl = $("#map-search-results");
@@ -338,9 +373,15 @@ async function runMapSearch() {
         return li;
       })
     );
-    setStatus(results.length ? "" : "검색 결과가 없습니다.");
+    if (results.length) {
+      setStatus("");
+    } else {
+      setStatus("");
+      showMapSearchNoResultsDialog(q);
+    }
   } catch {
-    setStatus("검색에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    setStatus("");
+    showMapSearchNoResultsDialog(q);
   }
 }
 
@@ -580,6 +621,48 @@ function renderWeather(data) {
   );
 }
 
+function buildClientSearchVariants(q) {
+  const variants = [];
+  const add = (s) => {
+    const t = String(s || "").trim();
+    if (t && !variants.includes(t)) variants.push(t);
+  };
+  add(q);
+  const compact = q.replace(/\s+/g, "");
+  if (compact !== q) add(compact);
+  if (/[0-9]$/.test(compact)) {
+    for (const sfx of ["교", "대교", "방파제", "항", "선착장", "부두"]) {
+      if (!compact.endsWith(sfx)) add(compact + sfx);
+    }
+  }
+  return variants.slice(0, 6);
+}
+
+function rankClientGeocodeResults(list, q) {
+  const nq = q.replace(/\s+/g, "").toLowerCase();
+  const seen = new Set();
+  const uniq = [];
+  for (const r of list) {
+    if (!Number.isFinite(r.lat) || !Number.isFinite(r.lon)) continue;
+    const key = `${r.lat.toFixed(5)},${r.lon.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(r);
+  }
+  const score = (r) => {
+    const title = String(r.title || "")
+      .replace(/\s+/g, "")
+      .toLowerCase();
+    const addr = String(r.address || "")
+      .replace(/\s+/g, "")
+      .toLowerCase();
+    if (title.includes(nq)) return 70;
+    if (addr.includes(nq)) return 40;
+    return 10;
+  };
+  return uniq.sort((a, b) => score(b) - score(a)).slice(0, 12);
+}
+
 async function fetchGeocode(params) {
   const qs = new URLSearchParams(params);
   try {
@@ -594,16 +677,38 @@ async function fetchGeocode(params) {
 async function fallbackGeocode(params) {
   const headers = { "User-Agent": "SeaTidePWA/1.0 (sea.uxpwa.com)" };
   if (params.q) {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(params.q)}&format=json&limit=8&countrycodes=kr`;
-    const list = await fetch(url, { headers }).then((r) => r.json());
-    return {
-      results: (list || []).map((d) => ({
-        title: d.display_name.split(",")[0],
-        address: d.display_name,
-        lat: Number(d.lat),
-        lon: Number(d.lon)
-      }))
-    };
+    const variants = buildClientSearchVariants(params.q);
+    const merged = [];
+    for (const variant of variants) {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(variant)}&format=json&limit=8&countrycodes=kr`;
+      const list = await fetch(url, { headers }).then((r) => r.json());
+      for (const d of list || []) {
+        merged.push({
+          title: d.display_name.split(",")[0],
+          address: d.display_name,
+          lat: Number(d.lat),
+          lon: Number(d.lon),
+        });
+      }
+      if (merged.length >= 8) break;
+    }
+    if (merged.length === 0) {
+      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(params.q)}&lang=ko&limit=8&bbox=124.5,33,131.5,39.5`;
+      const photon = await fetch(photonUrl).then((r) => r.json());
+      for (const f of photon.features || []) {
+        const p = f.properties || {};
+        const coords = f.geometry?.coordinates || [];
+        const title = p.name || p.street || params.q;
+        const address = [p.state, p.city, p.street].filter(Boolean).join(" ");
+        merged.push({
+          title: String(title),
+          address: address || String(title),
+          lat: Number(coords[1]),
+          lon: Number(coords[0]),
+        });
+      }
+    }
+    return { results: rankClientGeocodeResults(merged, params.q) };
   }
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${params.lat}&lon=${params.lon}&format=json&zoom=14`;
   const data = await fetch(url, { headers }).then((r) => r.json());
