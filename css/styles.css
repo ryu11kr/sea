@@ -649,7 +649,8 @@ body.sea-app .sea-wrap > .app-name {
 .app-update-banner {
   position: fixed;
   inset: auto 0 0 0;
-  z-index: 1000;
+  z-index: 2200;
+  transform: translateZ(0);
   padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   text-align: center;
   background: var(--brand-dark);

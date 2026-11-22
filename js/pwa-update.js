@@ -12,6 +12,17 @@ const watchedRegistrations = new WeakSet();
 /** @type {{ cachePrefix?: string } | null} */
 let pwaConfig = null;
 
+/** 페이지를 처음 열 때 HTML에 박힌 버전(hydrate로 덮어쓰기 전) */
+const embeddedDeployAtLoad = (() => {
+  const v = window.SEA_DEPLOY_VERSION;
+  if (!v || typeof v !== "object") return null;
+  return {
+    build: v.build,
+    commitSha: v.commitSha || null,
+    updatedAt: v.updatedAt || null,
+  };
+})();
+
 function cachePrefix() {
   return pwaConfig?.cachePrefix || "sea-tide";
 }
@@ -106,14 +117,19 @@ function writeSeenAppVersion(meta) {
   );
 }
 
-function getPageDeployVersion() {
+function getLoadedPageDeployVersion() {
+  return embeddedDeployAtLoad || getPageDeployVersionFromWindow();
+}
+
+function getPageDeployVersionFromWindow() {
   const v = window.SEA_DEPLOY_VERSION;
   if (!v || typeof v !== "object") return null;
   return v;
 }
 
-/** index에 박힌 스크립트가 캐시·SW로 늦게 남은 경우(로컬 serve) 네트워크에서 다시 읽는다 */
+/** 로컬 serve: deploy-version.js 캐시 꼬임 완화 (배포 사이트에서는 seen·SW 기준으로 판단) */
 async function hydratePageDeployVersionFromNetwork() {
+  if (!isLocalDevHost()) return;
   try {
     const res = await fetch(`./deploy-version.js?h=${Date.now()}`, {
       cache: "no-store",
@@ -137,7 +153,7 @@ async function hydratePageDeployVersionFromNetwork() {
 /** 지금 실행 중인 번들(HTML에 박힌 deploy-version)이 서버보다 오래됐는지 */
 function pageBundleIsStale(serverMeta) {
   if (!serverMeta?.build) return false;
-  const embedded = getPageDeployVersion();
+  const embedded = getLoadedPageDeployVersion();
   if (!embedded) return false;
   if (serverMeta.commitSha && embedded.commitSha) {
     return serverMeta.commitSha !== embedded.commitSha;
@@ -164,7 +180,7 @@ function serverVersionIsNewer(meta, seen) {
 /** 화면에 로드된 deploy-version이 서버와 같으면 이미 최신 콘텐츠 */
 function pageBundleIsCurrent(serverMeta) {
   if (!serverMeta?.build) return false;
-  const embedded = getPageDeployVersion();
+  const embedded = getLoadedPageDeployVersion();
   if (!embedded?.build) return false;
   if (serverMeta.commitSha && embedded.commitSha && serverMeta.commitSha !== embedded.commitSha) {
     return false;
@@ -185,6 +201,9 @@ function shouldPromptAppUpdate(serverMeta) {
     return serverVersionIsNewer(serverMeta, seen);
   }
 
+  const controllerBuild = getControllerBuild();
+  if (controllerBuild && Number(serverMeta.build) > controllerBuild) return true;
+
   if (pageBundleIsCurrent(serverMeta)) return false;
   if (pageBundleIsStale(serverMeta)) return true;
   if (!seen) return true;
@@ -196,6 +215,7 @@ function showAppUpdateBanner(meta) {
   if (banner && !banner.hidden) return;
   if (banner) {
     banner.hidden = false;
+    banner.removeAttribute("hidden");
     if (meta?.build != null) banner.dataset.pendingBuild = String(meta.build);
     if (meta?.commitSha) banner.dataset.pendingSha = meta.commitSha;
   }
@@ -203,7 +223,7 @@ function showAppUpdateBanner(meta) {
 }
 
 async function bootstrapAppVersionCheck() {
-  if (!isLocalDevHost()) await hydratePageDeployVersionFromNetwork();
+  await hydratePageDeployVersionFromNetwork();
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
   const seen = readSeenAppVersion();
@@ -221,11 +241,13 @@ async function bootstrapAppVersionCheck() {
     showAppUpdateBanner(meta);
     return;
   }
-  if (pageBundleIsCurrent(meta) || !seen) writeSeenAppVersion(meta);
+  if (!shouldPromptAppUpdate(meta) && (pageBundleIsCurrent(meta) || !seen)) {
+    writeSeenAppVersion(meta);
+  }
 }
 
 async function checkAppVersionUpdate() {
-  if (!isLocalDevHost()) await hydratePageDeployVersionFromNetwork();
+  await hydratePageDeployVersionFromNetwork();
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
 
@@ -384,7 +406,6 @@ function bindAppUpdateUi() {
 export async function initSeaPwaUpdate() {
   if (!("serviceWorker" in navigator)) return;
   await loadPwaConfig();
-  await hydratePageDeployVersionFromNetwork();
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloadOnControllerChange) location.reload();
   });
