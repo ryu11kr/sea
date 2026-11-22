@@ -845,12 +845,14 @@ export async function refreshIncomingShareRequests(
     if (!data?.length) {
       listEl.hidden = true;
       maybeShowSharePopup([], client, userEmail, listEl, setStatus, preferRequestId);
+      syncSharePendingNudge([], client, userEmail, listEl, setStatus);
       return;
     }
     listEl.hidden = false;
   }
 
   if (!data?.length) {
+    syncSharePendingNudge([], client, userEmail, listEl, setStatus);
     return;
   }
 
