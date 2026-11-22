@@ -1,6 +1,7 @@
 /** POST { requestId } — 포인트 공유 거절 */
 
-import { getAuthUser, normalizeEmail } from "./_lib/auth.js";
+import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
+import { shareEmailsMatch } from "./_lib/email.js";
 import { getAdminClient } from "./_lib/admin.js";
 
 export default async function handler(req, res) {
@@ -17,7 +18,7 @@ export default async function handler(req, res) {
   }
 
   const user = await getAuthUser(req);
-  if (!user?.id || !user.email) {
+  if (!user?.id || !resolveUserEmail(user)) {
     return res.status(401).json({ error: "login_required" });
   }
 
@@ -31,14 +32,14 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "server_not_configured" });
   }
 
-  const myEmail = normalizeEmail(user.email);
+  const myEmail = resolveUserEmail(user);
   const { data: reqRow } = await admin
     .from("sea_share_requests")
     .select("to_email, status")
     .eq("id", requestId)
     .maybeSingle();
 
-  if (!reqRow || normalizeEmail(reqRow.to_email) !== myEmail) {
+  if (!reqRow || !shareEmailsMatch(reqRow.to_email, myEmail)) {
     return res.status(404).json({ error: "not_found" });
   }
   if (reqRow.status !== "pending") {

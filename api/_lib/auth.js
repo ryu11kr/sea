@@ -25,3 +25,13 @@ export function normalizeEmail(email) {
     .trim()
     .toLowerCase();
 }
+
+export function resolveUserEmail(user) {
+  if (!user) return "";
+  return (
+    user.email ||
+    user.user_metadata?.email ||
+    user.user_metadata?.email_address ||
+    ""
+  );
+}

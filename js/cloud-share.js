@@ -178,7 +178,7 @@ export function hideShareAcceptBusy(setStatus) {
   setStatus?.("");
 }
 
-/** 소문자만 맞춤. 받는 사람 Gmail은 로그인 주소와 글자 그대로 같아야 함 */
+/** 소문자만 맞춤. @ 없으면 @gmail.com */
 function normalizeEmail(email) {
   let raw = String(email || "")
     .trim()
@@ -190,6 +190,28 @@ function normalizeEmail(email) {
   return raw;
 }
 
+/** Gmail 점·+alias 정규화 — 수신 매칭용 */
+function canonicalShareEmail(email) {
+  const raw = normalizeEmail(email);
+  if (!raw.includes("@")) return raw;
+  const at = raw.indexOf("@");
+  let local = raw.slice(0, at);
+  let domain = raw.slice(at + 1);
+  if (domain === "googlemail.com") domain = "gmail.com";
+  if (domain === "gmail.com") {
+    const plus = local.indexOf("+");
+    if (plus >= 0) local = local.slice(0, plus);
+    local = local.replace(/\./g, "");
+  }
+  return `${local}@${domain}`;
+}
+
+function shareEmailsMatch(a, b) {
+  const ca = canonicalShareEmail(a);
+  const cb = canonicalShareEmail(b);
+  return Boolean(ca && cb && ca === cb);
+}
+
 /** 구글 로그인 세션에서 받는 사람 이메일 (user.email 없을 때 metadata 보강) */
 export function resolveSessionEmail(user) {
   if (!user) return "";
@@ -199,7 +221,7 @@ export function resolveSessionEmail(user) {
     user.user_metadata?.email_address,
   ];
   for (const c of candidates) {
-    const n = normalizeEmail(c);
+    const n = canonicalShareEmail(c);
     if (n) return n;
   }
   return "";
@@ -281,7 +303,8 @@ function describeShareError(err) {
  * @param {string} fromEmail
  * @param {string} toEmail
  */
-async function sendShareRequestViaClient(client, userId, fromEmail, toEmail) {
+async function sendShareRequestViaClient(client, userId, fromEmail, toEmailRaw) {
+  const toEmail = canonicalShareEmail(toEmailRaw);
   const { data: cloudRow, error: cloudErr } = await client
     .from("sea_user_data")
     .select("points")
@@ -550,7 +573,7 @@ export async function refreshIncomingShareRequests(
   setStatus,
   preferRequestId = null
 ) {
-  const email = normalizeEmail(userEmail);
+  const email = canonicalShareEmail(userEmail);
   if (!email) {
     if (listEl) {
       listEl.hidden = true;
@@ -563,16 +586,26 @@ export async function refreshIncomingShareRequests(
   const { data: sess } = await client.auth.getSession();
   const userId = sess.session?.user?.id || null;
 
-  const { data: rawRows, error } = await client
-    .from("sea_share_requests")
-    .select("id, from_email, created_at, to_email, from_user_id")
-    .eq("status", "pending")
-    .order("created_at", { ascending: false });
+  /** @type {Array<{ id: string, from_email: string, created_at?: string }> | null} */
+  let data = null;
+  let error = null;
 
-  const data = (rawRows || []).filter((row) => {
-    if (userId && row.from_user_id === userId) return false;
-    return normalizeEmail(row.to_email) === email;
-  });
+  try {
+    const json = await authFetch("share-incoming");
+    data = Array.isArray(json?.requests) ? json.requests : [];
+  } catch (apiErr) {
+    console.warn("share-incoming API fallback", apiErr);
+    const res = await client
+      .from("sea_share_requests")
+      .select("id, from_email, created_at, to_email, from_user_id")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
+    error = res.error;
+    data = (res.data || []).filter((row) => {
+      if (userId && row.from_user_id === userId) return false;
+      return shareEmailsMatch(row.to_email, email);
+    });
+  }
 
   if (error) {
     if (isShareTableMissingError(error)) {
@@ -739,7 +772,7 @@ export function initSeaShareUi(client, session, setStatus) {
           sendInput.focus();
           return;
         }
-        const toEmail = normalizeEmail(raw);
+        const toEmail = canonicalShareEmail(raw);
         sendBtn.disabled = true;
         sendInput.disabled = true;
         showShareAcceptBusy("클라우드에 저장한 뒤 공유합니다…", setStatus);
@@ -753,7 +786,7 @@ export function initSeaShareUi(client, session, setStatus) {
             e.code = "login_required";
             throw e;
           }
-          if (toEmail === fromEmail) {
+          if (shareEmailsMatch(toEmail, fromEmail)) {
             const e = new Error("self_share");
             e.code = "self_share";
             throw e;
