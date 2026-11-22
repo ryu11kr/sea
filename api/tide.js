@@ -1,13 +1,9 @@
 import { nearestTideStation } from "./_lib/tide-stations.js";
 
-/** 공공데이터포털 신규 (2025~) — 활용신청 화면 End Point 와 동일 */
 const DATA_GO_SURVEY =
   "https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService";
 const DATA_GO_HL =
   "https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService";
-/** 구 바다누리 URL (예전 키·신규 조합은 HTML 오류) */
-const KHOA_PRE_TAB =
-  "https://www.khoa.go.kr/api/oceangrid/tideObsPreTab/search.do";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -24,7 +20,9 @@ export default async function handler(req, res) {
     return;
   }
 
-  const serviceKey = (process.env.KHOA_SERVICE_KEY || process.env.DATA_GO_KR_SERVICE_KEY || "").trim();
+  const serviceKey = normalizeServiceKey(
+    process.env.KHOA_SERVICE_KEY || process.env.DATA_GO_KR_SERVICE_KEY || ""
+  );
   const { station, distanceKm } = nearestTideStation(lat, lon);
 
   if (!serviceKey) {
@@ -42,34 +40,33 @@ export default async function handler(req, res) {
 
   try {
     const hl = await fetchDataGoHighLow(serviceKey, station.code, date);
-    if (hl.ok && hl.items.length) {
+    if (hl.items.length) {
       res.status(200).json({ ...base, items: hl.items, source: "data.go.kr/tideFcstHghLw" });
       return;
     }
 
     const survey = await fetchDataGoSurvey(serviceKey, station.code, date);
-    if (survey.ok && survey.items.length) {
+    if (survey.items.length) {
       res.status(200).json({ ...base, items: survey.items, source: "data.go.kr/surveyTideLevel" });
       return;
     }
 
-    const legacy = await fetchKhoaPreTab(serviceKey, station.code, date);
-    if (legacy.ok && legacy.items.length) {
-      res.status(200).json({ ...base, items: legacy.items, source: "khoa/tideObsPreTab(legacy)" });
-      return;
-    }
+    const detail = {
+      surveyCode: survey.resultCode,
+      surveyMsg: survey.apiMessage,
+      surveyRows: survey.rowCount,
+      hlCode: hl.resultCode,
+      hlMsg: hl.apiMessage
+    };
 
-    const msg =
-      survey.apiMessage ||
-      hl.apiMessage ||
-      "공공데이터 조회 실패. 마이페이지 **일반 인증키** 를 Vercel KHOA_SERVICE_KEY에 그대로 넣고 Redeploy 하세요. (Decoding/Encoding 구분 없이 키 한 줄만 있어도 됩니다.)";
+    const userMsg = buildUserMessage(detail);
 
     res.status(200).json({
       ...base,
       items: [],
       error: "upstream_failed",
-      message: msg,
-      hint: survey.hint || hl.hint || legacy.hint
+      message: userMsg,
+      publicData: detail
     });
   } catch (err) {
     res.status(502).json({
@@ -81,25 +78,31 @@ export default async function handler(req, res) {
   }
 }
 
+function normalizeServiceKey(raw) {
+  return String(raw || "")
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .replace(/\s+/g, "");
+}
+
 function buildDataGoUrls(endpoint, serviceKey, params) {
-  const q = new URLSearchParams(params);
-  const base = `${endpoint}?${q.toString()}&serviceKey=`;
   const keys = serviceKeyVariants(serviceKey);
-  return keys.map((key) => `${base}${key}`);
+  const q = new URLSearchParams(params);
+  const tail = q.toString();
+  return keys.map((key) => `${endpoint}?serviceKey=${key}&${tail}`);
 }
 
 /** @returns {string[]} */
 function serviceKeyVariants(raw) {
-  const k = raw.trim();
+  const k = normalizeServiceKey(raw);
   const out = [];
   const add = (v) => {
     if (v && !out.includes(v)) out.push(v);
   };
-  add(encodeURIComponent(k));
   add(k);
+  add(encodeURIComponent(k));
   if (k.includes("%")) {
     try {
-      add(encodeURIComponent(decodeURIComponent(k)));
+      add(decodeURIComponent(k));
     } catch {
       /* ignore */
     }
@@ -108,19 +111,33 @@ function serviceKeyVariants(raw) {
 }
 
 async function fetchText(url) {
-  const upstream = await fetch(url, { headers: { Accept: "application/json" } });
+  const upstream = await fetch(url, {
+    headers: {
+      Accept: "application/json, text/xml, */*",
+      "User-Agent": "sea.uxpwa.com/1.0 (tide proxy)"
+    }
+  });
   const text = await upstream.text();
   return { text, status: upstream.status };
 }
 
-function parseJson(text) {
+function parseDataGoPayload(text) {
   const t = text.trim();
-  if (!t.startsWith("{") && !t.startsWith("[")) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
   }
+  if (t.startsWith("<")) {
+    const resultCode = t.match(/<resultCode>([^<]+)/)?.[1]?.trim();
+    const resultMsg = t.match(/<resultMsg>([^<]+)/)?.[1]?.trim();
+    if (resultCode) {
+      return { response: { header: { resultCode, resultMsg } } };
+    }
+  }
+  return null;
 }
 
 function dataGoHeader(data) {
@@ -136,6 +153,10 @@ function dataGoMessage(data) {
   return dataGoHeader(data).resultMsg || "";
 }
 
+function dataGoCode(data) {
+  return String(dataGoHeader(data).resultCode ?? "");
+}
+
 function dataGoRows(data) {
   const body = data?.response?.body ?? data?.body ?? {};
   const items = body?.items?.item ?? body?.item ?? [];
@@ -149,29 +170,41 @@ async function fetchDataGoSurvey(serviceKey, obsCode, date) {
     reqDate: date,
     pageNo: "1",
     numOfRows: "300",
-    min: "1"
+    min: "60"
   };
-  let hint = "";
   let apiMessage = "";
+  let resultCode = "";
+  let rowCount = 0;
+  let httpStatus = 0;
 
   for (const url of buildDataGoUrls(DATA_GO_SURVEY, serviceKey, params)) {
-    const { text } = await fetchText(url);
-    const data = parseJson(text);
+    const { text, status } = await fetchText(url);
+    httpStatus = status;
+    const data = parseDataGoPayload(text);
     if (!data) {
-      hint = text.slice(0, 160).replace(/\s+/g, " ");
+      if (status === 403) {
+        resultCode = "HTTP403";
+        apiMessage = "공공데이터가 요청을 거부했습니다(403). 인증키·활용신청 승인을 확인하세요.";
+      }
       continue;
     }
-    if (!dataGoOk(data)) {
-      apiMessage = dataGoMessage(data);
-      continue;
-    }
+    resultCode = dataGoCode(data);
+    apiMessage = dataGoMessage(data) || apiMessage;
+    if (!dataGoOk(data)) continue;
+
     const rows = dataGoRows(data);
+    rowCount = rows.length;
     const items = extractHighLowFromSeries(rows);
     if (items.length) {
-      return { ok: true, items, hint, apiMessage };
+      return { items, apiMessage, resultCode, rowCount };
     }
   }
-  return { ok: false, items: [], hint, apiMessage };
+
+  if (!apiMessage && httpStatus === 403) {
+    apiMessage = "인증키 오류 가능성(HTTP 403). Vercel 키를 마이페이지에서 다시 복사해 넣으세요.";
+  }
+
+  return { items: [], apiMessage, resultCode, rowCount };
 }
 
 async function fetchDataGoHighLow(serviceKey, obsCode, date) {
@@ -182,63 +215,53 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
     pageNo: "1",
     numOfRows: "24"
   };
-  let hint = "";
   let apiMessage = "";
+  let resultCode = "";
 
   for (const url of buildDataGoUrls(DATA_GO_HL, serviceKey, params)) {
-    const { text } = await fetchText(url);
-    const data = parseJson(text);
+    const { text, status } = await fetchText(url);
+    const data = parseDataGoPayload(text);
     if (!data) {
-      hint = text.slice(0, 160).replace(/\s+/g, " ");
+      if (status === 403) {
+        resultCode = "HTTP403";
+        apiMessage =
+          "「조석예보(고·저조)」 API 미신청이면 이 오류가 날 수 있습니다. 조위 실측·예측 API만으로도 동작합니다.";
+      }
       continue;
     }
-    if (!dataGoOk(data)) {
-      apiMessage = dataGoMessage(data);
-      continue;
-    }
-    const items = dataGoRows(data).map(normalizeTideRow).filter((i) => i && (i.type === "high" || i.type === "low"));
+    resultCode = dataGoCode(data);
+    apiMessage = dataGoMessage(data) || apiMessage;
+    if (!dataGoOk(data)) continue;
+
+    const items = dataGoRows(data)
+      .map(normalizeTideRow)
+      .filter((i) => i && (i.type === "high" || i.type === "low"));
     if (items.length) {
-      return { ok: true, items, hint, apiMessage };
+      return { items, apiMessage, resultCode };
     }
   }
-  return { ok: false, items: [], hint, apiMessage };
+  return { items: [], apiMessage, resultCode };
 }
 
-async function fetchKhoaPreTab(serviceKey, obsCode, date) {
-  let hint = "";
-  for (const key of serviceKeyVariants(serviceKey)) {
-    const url = `${KHOA_PRE_TAB}?ServiceKey=${key}&ObsCode=${encodeURIComponent(obsCode)}&Date=${encodeURIComponent(date)}&ResultType=json`;
-    const { text } = await fetchText(url);
-    const data = parseJson(text);
-    if (!data) {
-      hint = text.slice(0, 120).replace(/\s+/g, " ");
-      continue;
-    }
-    const rows = normalizeRows(data);
-    const direct = rows.map(normalizeTideRow).filter(Boolean);
-    const typed = direct.filter((i) => i.type === "high" || i.type === "low");
-    const items = typed.length ? typed : extractHighLowFromSeries(rows);
-    if (items.length) {
-      return { ok: true, items, hint };
-    }
+function buildUserMessage(detail) {
+  const { surveyMsg, surveyCode, hlMsg, surveyRows } = detail;
+  if (surveyMsg) {
+    return `공공데이터: [${surveyCode || "?"}] ${surveyMsg}`;
   }
-  return { ok: false, items: [], hint };
-}
-
-function normalizeRows(data) {
-  const result = data?.result ?? data?.response?.body ?? data;
-  const records = result?.data ?? result?.items ?? result?.item ?? result?.record ?? [];
-  return Array.isArray(records) ? records : records ? [records] : [];
+  if (hlMsg) {
+    return `공공데이터(고·저조): ${hlMsg}`;
+  }
+  if (surveyRows > 0) {
+    return `조위 데이터 ${surveyRows}건은 받았지만 만조·간조 추출에 실패했습니다. (필드 형식 확인 중)`;
+  }
+  return "공공데이터 응답이 없습니다. Vercel KHOA_SERVICE_KEY 전체 복사 후 Redeploy, 활용신청「승인」여부를 확인하세요.";
 }
 
 function normalizeTideRow(row) {
   if (!row || typeof row !== "object") return null;
   const time =
     row.tph_time || row.hl_time || row.time || row.obs_time || row.obsTime || row.record_time;
-  let level = row.tph_level || row.tide_level || row.tideLevel || row.level || row.TIDE_LEVEL;
-  if (level != null && Number(level) < 50 && String(level).includes(".")) {
-    level = Math.round(Number(level) * 100);
-  }
+  const level = rowLevel(row);
   const label = row.hl_code || row.hl_type || row.tide_type || row.type || row.HL_CODE;
   if (!time) return null;
 
@@ -247,9 +270,41 @@ function normalizeTideRow(row) {
 
   return {
     time: formatObsTime(time),
-    levelCm: level != null ? Number(level) : null,
+    levelCm: Number.isFinite(level) ? level : null,
     type
   };
+}
+
+function rowLevel(row) {
+  const keys = [
+    "tideLevel",
+    "preTideLevel",
+    "predictTideLevel",
+    "obsTideLevel",
+    "tide_level",
+    "tph_level",
+    "level",
+    "tideObs",
+    "preTide",
+    "obsTide",
+    "realTide",
+    "pre_tide_level",
+    "obs_tide_level"
+  ];
+  for (const k of keys) {
+    if (row[k] == null || row[k] === "") continue;
+    return normalizeLevelCm(row[k]);
+  }
+  return NaN;
+}
+
+function normalizeLevelCm(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return NaN;
+  if (Math.abs(n) < 30 && String(v).includes(".")) {
+    return Math.round(n * 100);
+  }
+  return Math.round(n);
 }
 
 function formatObsTime(raw) {
@@ -276,12 +331,12 @@ function inferTideType(raw) {
 function extractHighLowFromSeries(rows) {
   const points = rows
     .map((row) => {
-      const time = formatObsTime(row.obsTime || row.record_time || row.obs_time || row.time);
-      const level = Number(
-        row.tideLevel ?? row.preTideLevel ?? row.predictTideLevel ?? row.tide_level ?? row.level
+      const time = formatObsTime(
+        row.obsTime || row.obs_time || row.record_time || row.preTime || row.time
       );
+      const level = rowLevel(row);
       if (!time || !Number.isFinite(level)) return null;
-      return { time, levelCm: level < 50 ? Math.round(level * 100) : Math.round(level) };
+      return { time, levelCm: level };
     })
     .filter(Boolean);
 
