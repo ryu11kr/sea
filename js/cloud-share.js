@@ -129,6 +129,7 @@ export function yieldToPaint() {
 }
 
 let shareAcceptBusyActive = false;
+let shareTableMissingNotified = false;
 
 function resetSharePopupBusyUi() {
   const popup = document.querySelector("#sea-share-popup");
@@ -217,7 +218,26 @@ export async function authFetch(path, options = {}) {
   return json;
 }
 
+function isShareTableMissingError(err) {
+  const code = err?.code;
+  if (code === "PGRST205") return true;
+  const msg = String(err?.message || err?.details || "");
+  return msg.includes("sea_share_requests");
+}
+
+function notifyShareTableMissing() {
+  if (shareTableMissingNotified) return;
+  shareTableMissingNotified = true;
+  stopIncomingSharePolling();
+  showSeaShareHint(
+    "포인트 공유 DB가 아직 없습니다.\n\nSupabase 대시보드 → SQL Editor에서\nsupabase/sea-share-setup.sql 내용을 Run 해 주세요.\n\n(물때 클라우드용 sea-cloud-setup.sql 과는 별도입니다.)"
+  );
+}
+
 function describeShareError(err) {
+  if (isShareTableMissingError(err)) {
+    return "포인트 공유 DB가 없습니다. Supabase SQL Editor에서 sea-share-setup.sql 을 Run 해 주세요.";
+  }
   const code = err?.code || err?.message;
   if (code === "no_points" || code === "no_stops") {
     return "클라우드에 저장된 포인트가 없습니다. 포인트를 저장한 뒤 잠시 기다렸다가 다시 보내 주세요.";
@@ -510,8 +530,16 @@ export async function refreshIncomingShareRequests(
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error(error);
-    setStatus?.("공유 요청을 불러오지 못했습니다.");
+    if (isShareTableMissingError(error)) {
+      notifyShareTableMissing();
+    } else {
+      console.error(error);
+      setStatus?.("공유 요청을 불러오지 못했습니다.");
+    }
+    if (listEl) {
+      listEl.hidden = true;
+      listEl.replaceChildren();
+    }
     return;
   }
 
@@ -651,7 +679,9 @@ export function initSeaShareUi(client, session, setStatus) {
         }
         const toEmail = normalizeEmail(raw);
         sendBtn.disabled = true;
-        setStatus?.("클라우드에 저장한 뒤 공유합니다…");
+        sendInput.disabled = true;
+        showShareAcceptBusy("클라우드에 저장한 뒤 공유합니다…", setStatus);
+        await yieldToPaint();
         try {
           const { data: sess } = await client.auth.getSession();
           const userId = sess.session?.user?.id;
@@ -666,16 +696,28 @@ export function initSeaShareUi(client, session, setStatus) {
             e.code = "self_share";
             throw e;
           }
+          showShareAcceptBusy("포인트를 클라우드에 올리는 중…", setStatus);
+          await yieldToPaint();
           await pushLocalStateToCloud(client, userId);
+          showShareAcceptBusy("공유 요청을 보내는 중…", setStatus);
+          await yieldToPaint();
           await sendShareRequestViaClient(client, userId, fromEmail, toEmail);
           sendInput.value = "";
-          setStatus?.("");
+          hideShareAcceptBusy(setStatus);
           showSeaShareHint(`공유 요청을 보냈습니다.\n\n받는 사람: ${toEmail}`);
         } catch (err) {
           console.error(err);
-          setStatus?.(describeShareError(err));
+          hideShareAcceptBusy(setStatus);
+          const message = describeShareError(err);
+          if (isShareTableMissingError(err)) {
+            notifyShareTableMissing();
+          } else {
+            showSeaShareHint(message);
+            setStatus?.(message);
+          }
         } finally {
           sendBtn.disabled = false;
+          sendInput.disabled = false;
         }
       });
     }
