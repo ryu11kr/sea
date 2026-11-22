@@ -65,4 +65,5 @@ outputDirectory: .
 
 ## 아이콘
 
-현재 `icons/`는 버스첩에서 임시 복사본입니다. 물때첩 전용 아이콘으로 교체하세요.
+`icons/source/sea-app-icon.jpg` 원본 → `scripts/render-sea-icon.ps1` 로 PNG 생성.  
+구글 OAuth 로고: `icons/google-oauth-logo.png` (512×512)
