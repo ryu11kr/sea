@@ -346,7 +346,7 @@ async function loadDetailData(point) {
   ]);
   setStatus("");
 
-  renderTide(tide);
+  renderTide(tide, point);
   renderWeather(weather);
 }
 
@@ -358,7 +358,7 @@ function clearDetailPanels() {
   $("#weather-hourly").replaceChildren();
 }
 
-function renderTide(data) {
+function renderTide(data, point) {
   const phaseEl = $("#tide-phase");
   const listEl = $("#tide-times");
   const noteEl = $("#tide-station-note");
@@ -369,9 +369,14 @@ function renderTide(data) {
 
   if (noteEl) {
     const st = data.station;
-    noteEl.textContent = st
+  let note = st
       ? `기준 관측소: ${st.name} (${st.code}) · 약 ${data.distanceKm ?? "?"}km`
       : "";
+    if (point && (data.distanceKm ?? 0) > 80) {
+      note +=
+        ` · 저장 좌표가 멀 수 있습니다 (${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}). 「위치 다시 잡기」로 송도 아암2교에 맞춰 주세요.`;
+    }
+    noteEl.textContent = note;
   }
 
   if (!data.configured) {

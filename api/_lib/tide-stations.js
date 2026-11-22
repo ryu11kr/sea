@@ -1,6 +1,7 @@
 /** KHOA 조위관측소 (일부) — lat/lon 기준 최근접 관측소 매칭용 */
 export const TIDE_STATIONS = [
   { code: "DT_0001", name: "인천", lat: 37.4519, lon: 126.5922 },
+  { code: "DT_0052", name: "인천송도", lat: 37.338, lon: 126.586 },
   { code: "DT_0004", name: "부산", lat: 35.0962, lon: 129.0404 },
   { code: "DT_0007", name: "목포", lat: 34.7794, lon: 126.3756 },
   { code: "DT_0012", name: "속초", lat: 38.2075, lon: 128.5942 },
