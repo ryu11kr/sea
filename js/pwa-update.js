@@ -134,19 +134,26 @@ function serverVersionIsNewer(meta, seen) {
   return Number(meta.build) !== Number(seen.build);
 }
 
-function serviceWorkerIsBehind(serverMeta) {
+/** 화면에 로드된 deploy-version이 서버와 같으면 이미 최신 콘텐츠 */
+function pageBundleIsCurrent(serverMeta) {
   if (!serverMeta?.build) return false;
-  const controllerBuild = getControllerBuild();
-  if (!controllerBuild) return Number(serverMeta.build) > 0;
-  return Number(serverMeta.build) > controllerBuild;
+  const embedded = getPageDeployVersion();
+  if (!embedded?.build) return false;
+  if (serverMeta.commitSha && embedded.commitSha && serverMeta.commitSha !== embedded.commitSha) {
+    return false;
+  }
+  if (serverMeta.updatedAt && embedded.updatedAt && serverMeta.updatedAt !== embedded.updatedAt) {
+    return false;
+  }
+  return Number(serverMeta.build) === Number(embedded.build);
 }
 
 function shouldPromptAppUpdate(serverMeta) {
   if (!serverMeta?.build) return false;
+  if (pageBundleIsCurrent(serverMeta)) return false;
   if (pageBundleIsStale(serverMeta)) return true;
-  if (serviceWorkerIsBehind(serverMeta)) return true;
   const seen = readSeenAppVersion();
-  if (!seen) return false;
+  if (!seen) return true;
   return serverVersionIsNewer(serverMeta, seen);
 }
 
@@ -169,7 +176,7 @@ async function bootstrapAppVersionCheck() {
     return;
   }
   const seen = readSeenAppVersion();
-  if (!seen) writeSeenAppVersion(meta);
+  if (pageBundleIsCurrent(meta) || !seen) writeSeenAppVersion(meta);
 }
 
 async function checkAppVersionUpdate() {
@@ -257,9 +264,8 @@ function watchUpdates(reg) {
   watchedRegistrations.add(reg);
 
   if (reg.waiting && navigator.serviceWorker.controller) {
-    const build = new URL(reg.waiting.scriptURL, location.href).searchParams.get("build");
     fetchVersionInfo().then((info) => {
-      showAppUpdateBanner(info || (build ? { build: Number(build) } : null));
+      if (info && shouldPromptAppUpdate(info)) showAppUpdateBanner(info);
     });
   }
 
@@ -298,10 +304,6 @@ async function syncServiceWorker() {
   await registration?.update();
   if (registration) await navigator.serviceWorker.ready;
 
-  const waiting = registration?.waiting && navigator.serviceWorker.controller;
-  if (serverBuild > controllerBuild && waiting) {
-    showAppUpdateBanner(versionInfo);
-  }
 }
 
 function bindAppUpdateUi() {
