@@ -304,7 +304,8 @@ function describeShareError(err) {
  * @param {string} toEmail
  */
 async function sendShareRequestViaClient(client, userId, fromEmail, toEmailRaw) {
-  const toEmail = canonicalShareEmail(toEmailRaw);
+  /** 버스첩과 같이 저장 (수신 조회는 canonical·원문 둘 다 시도) */
+  const toEmail = normalizeEmail(toEmailRaw);
   const { data: cloudRow, error: cloudErr } = await client
     .from("sea_user_data")
     .select("points")
@@ -552,12 +553,86 @@ function bindSharePopupOnce(client, userEmail, listEl, setStatus) {
  * @param {HTMLElement | null} listEl
  * @param {(text: string) => void} setStatus
  */
+/**
+ * 버스첩 동일 직접 조회 + canonical + API 병합
+ * @param {import("@supabase/supabase-js").SupabaseClient} client
+ * @param {string} email
+ * @param {string | null} userId
+ */
+async function loadPendingIncomingShares(client, email, userId) {
+  const keys = new Set();
+  const plain = normalizeEmail(email);
+  const canon = canonicalShareEmail(email);
+  if (plain) keys.add(plain);
+  if (canon) keys.add(canon);
+
+  /** @type {Map<string, { id: string, from_email: string, created_at?: string }>} */
+  const byId = new Map();
+
+  const mergeRows = (rows) => {
+    for (const row of rows || []) {
+      if (!row?.id) continue;
+      if (userId && row.from_user_id === userId) continue;
+      const to = row.to_email;
+      if (to && !shareEmailsMatch(to, plain) && !shareEmailsMatch(to, canon)) continue;
+      byId.set(String(row.id), {
+        id: row.id,
+        from_email: row.from_email,
+        created_at: row.created_at,
+      });
+    }
+  };
+
+  for (const key of keys) {
+    const { data, error } = await client
+      .from("sea_share_requests")
+      .select("id, from_email, created_at, to_email, from_user_id")
+      .eq("status", "pending")
+      .eq("to_email", key)
+      .order("created_at", { ascending: false });
+    if (!error && data?.length) mergeRows(data);
+    if (error && isShareTableMissingError(error)) throw error;
+  }
+
+  try {
+    const json = await authFetch("share-incoming");
+    mergeRows(
+      (json?.requests || []).map((r) => ({
+        ...r,
+        to_email: plain,
+        from_user_id: null,
+      }))
+    );
+  } catch (apiErr) {
+    console.warn("share-incoming API", apiErr);
+  }
+
+  if (byId.size === 0) {
+    const { data, error } = await client
+      .from("sea_share_requests")
+      .select("id, from_email, created_at, to_email, from_user_id")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
+    if (error) return { data: [], error };
+    mergeRows(data);
+  }
+
+  const sorted = [...byId.values()].sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+  return { data: sorted, error: null };
+}
+
 export async function refreshIncomingForSession(client, session, listEl, setStatus) {
   let email = resolveSessionEmail(session?.user);
   if (!email) {
+    const raw = String(session?.user?.email || "").trim();
+    if (raw) email = normalizeEmail(raw);
+  }
+  if (!email) {
     try {
       const { data: userData } = await client.auth.getUser();
-      email = resolveSessionEmail(userData.user);
+      email = resolveSessionEmail(userData.user) || normalizeEmail(userData.user?.email || "");
     } catch {
       /* ignore */
     }
@@ -586,25 +661,14 @@ export async function refreshIncomingShareRequests(
   const { data: sess } = await client.auth.getSession();
   const userId = sess.session?.user?.id || null;
 
-  /** @type {Array<{ id: string, from_email: string, created_at?: string }> | null} */
-  let data = null;
+  let data = [];
   let error = null;
-
   try {
-    const json = await authFetch("share-incoming");
-    data = Array.isArray(json?.requests) ? json.requests : [];
-  } catch (apiErr) {
-    console.warn("share-incoming API fallback", apiErr);
-    const res = await client
-      .from("sea_share_requests")
-      .select("id, from_email, created_at, to_email, from_user_id")
-      .eq("status", "pending")
-      .order("created_at", { ascending: false });
-    error = res.error;
-    data = (res.data || []).filter((row) => {
-      if (userId && row.from_user_id === userId) return false;
-      return shareEmailsMatch(row.to_email, email);
-    });
+    const result = await loadPendingIncomingShares(client, email, userId);
+    data = result.data;
+    error = result.error;
+  } catch (err) {
+    error = err;
   }
 
   if (error) {
@@ -790,7 +854,7 @@ export async function initSeaShareUi(client, session, setStatus) {
           sendInput.focus();
           return;
         }
-        const toEmail = canonicalShareEmail(raw);
+        const toEmail = normalizeEmail(raw);
         sendBtn.disabled = true;
         sendInput.disabled = true;
         showShareAcceptBusy("클라우드에 저장한 뒤 공유합니다…", setStatus);

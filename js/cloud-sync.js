@@ -296,7 +296,10 @@ async function initGoogleAuthUi(client, cfg) {
     btn.style.display = visible ? "" : "none";
   }
 
+  let renderSerial = 0;
+
   async function renderSession(session) {
+    const ticket = ++renderSerial;
     const signedIn = Boolean(session?.user);
     setAuthButtonVisible(loginBtn, !signedIn);
     setAuthButtonVisible(logoutBtn, signedIn);
@@ -326,7 +329,11 @@ async function initGoogleAuthUi(client, cfg) {
       };
       shareIncomingStatusCb = setShareStatus;
       await initSeaShareUi(client, session, setShareStatus);
+      const incomingEl = document.querySelector("#sea-share-incoming");
+      const shareEmail = resolveSessionEmail(session.user) || session.user.email || "";
+      void refreshIncomingShareRequests(client, shareEmail, incomingEl, setShareStatus);
       startIncomingSharePolling(client, setShareStatus);
+      if (ticket !== renderSerial) return;
     } else {
       stopIncomingSharePolling();
       shareIncomingStatusCb = null;
