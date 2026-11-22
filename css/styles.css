@@ -72,6 +72,13 @@ body.sea-app {
   line-height: 1.15;
 }
 
+/* 긴 부제가 있는 홈 제목 — 좁은 화면에서도 한 줄 */
+body.sea-app .sea-wrap > .app-name {
+  font-size: clamp(0.8rem, 3.35vw, 1.48rem);
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
 .app-guide {
   margin: 0 0 1.15rem;
   padding: 0.85rem 1rem;
