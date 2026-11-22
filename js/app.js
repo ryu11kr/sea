@@ -172,11 +172,62 @@ function navSearchLabel(point) {
   return coord;
 }
 
-function tmapRouteHref(point) {
-  const goalname = encodeURIComponent(point.name?.trim() || "낚시 포인트");
+const TMAP_PLAY_STORE =
+  "https://play.google.com/store/apps/details?id=com.skt.tmap.ku&hl=ko";
+const TMAP_APP_STORE = "https://apps.apple.com/app/id431589174";
+
+function tmapGoalName(point) {
+  const label = navSearchLabel(point);
+  return label.length > 80 ? `${label.slice(0, 77)}…` : label;
+}
+
+function isAndroidUa() {
+  return /Android/i.test(navigator.userAgent || "");
+}
+
+function isIosUa() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+/** @param {SeaPoint} point */
+function tmapIosRouteScheme(point) {
+  const name = encodeURIComponent(tmapGoalName(point));
   const x = Number(point.lon);
   const y = Number(point.lat);
-  return `tmap://route?goalname=${goalname}&goalx=${x}&goaly=${y}`;
+  return `tmap://route?rGoName=${name}&rGoX=${x}&rGoY=${y}`;
+}
+
+/** Android Chrome — 설치 시 앱, 미설치 시 Play 스토어 */
+function tmapAndroidIntentUrl(point) {
+  const name = encodeURIComponent(tmapGoalName(point));
+  const x = Number(point.lon);
+  const y = Number(point.lat);
+  const routeQuery = `referrer=com.skt.Tmap&goalx=${x}&goaly=${y}&goalname=${name}&reqCoordType=WGS84&resCoordType=WGS84`;
+  const fallback = encodeURIComponent(TMAP_PLAY_STORE);
+  return `intent://route?${routeQuery}#Intent;scheme=tmap;package=com.skt.tmap.ku;S.browser_fallback_url=${fallback};end`;
+}
+
+/** @param {SeaPoint} point */
+function openTmapNavigation(point) {
+  if (isAndroidUa()) {
+    window.location.assign(tmapAndroidIntentUrl(point));
+    return;
+  }
+  if (isIosUa()) {
+    let opened = false;
+    const markOpened = () => {
+      opened = true;
+    };
+    window.addEventListener("blur", markOpened, { once: true });
+    window.addEventListener("pagehide", markOpened, { once: true });
+    window.location.assign(tmapIosRouteScheme(point));
+    window.setTimeout(() => {
+      if (!opened) window.location.assign(TMAP_APP_STORE);
+    }, 1800);
+    return;
+  }
+  window.open(TMAP_PLAY_STORE, "_blank", "noopener,noreferrer");
+  setStatus("PC에서는 Play 스토어 또는 카카오맵을 이용해 주세요.");
 }
 
 function kakaoMapHref(point) {
@@ -198,9 +249,7 @@ function renderDetailNav(point) {
   if (addrEl) addrEl.textContent = addr;
   if (coordsEl) coordsEl.textContent = coords;
 
-  const tmap = $("#detail-nav-tmap");
   const kakao = $("#detail-nav-kakao");
-  if (tmap) tmap.href = tmapRouteHref(point);
   if (kakao) kakao.href = kakaoMapHref(point);
 }
 
@@ -241,6 +290,11 @@ function bindDetailNavUi() {
     if (!point) return;
     const coords = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
     copyNavText(coords, "좌표를 복사했습니다.");
+  });
+  $("#detail-nav-tmap")?.addEventListener("click", () => {
+    const point = activePointId ? seaPoints.find((p) => p.id === activePointId) : null;
+    if (!point) return;
+    openTmapNavigation(point);
   });
 }
 
