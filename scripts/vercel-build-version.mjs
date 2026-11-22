@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { writeDeployVersionJs } from "./write-deploy-version.mjs";
 
 const sha = process.env.VERCEL_GIT_COMMIT_SHA || `local-${Date.now()}`;
 const hex = sha.replace(/[^a-f0-9]/gi, "");
@@ -21,6 +22,7 @@ const payload = {
 };
 
 writeFileSync("version.json", `${JSON.stringify(payload, null, 2)}\n`);
+writeDeployVersionJs(payload);
 console.log(`version.json → build ${build} (${sha.slice(0, 7)})`);
 
 const supabaseUrl = (process.env.SUPABASE_URL || "").trim();

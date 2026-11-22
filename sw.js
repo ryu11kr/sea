@@ -13,6 +13,7 @@ const APP_SHELL = [
   "./js/cloud-sync.js",
   "./js/cloud-share.js",
   "./js/cloud-sync-data.js",
+  "./deploy-version.js",
   "./cloud-sync.config.json",
   "./version.json",
   "./manifest.webmanifest",
@@ -52,7 +53,7 @@ self.addEventListener("fetch", (event) => {
 
   const path = url.pathname.replace(/\/$/, "");
   if (
-    /\/(?:js\/[^/]+\.js|css\/styles\.css|version\.json|index\.html|cloud-sync\.runtime\.json|cloud-sync\.config\.json)$/.test(
+    /\/(?:js\/[^/]+\.js|deploy-version\.js|css\/styles\.css|version\.json|index\.html|cloud-sync\.runtime\.json|cloud-sync\.config\.json)$/.test(
       path
     )
   ) {

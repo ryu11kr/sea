@@ -106,11 +106,48 @@ function writeSeenAppVersion(meta) {
   );
 }
 
+function getPageDeployVersion() {
+  const v = window.SEA_DEPLOY_VERSION;
+  if (!v || typeof v !== "object") return null;
+  return v;
+}
+
+/** 지금 실행 중인 번들(HTML에 박힌 deploy-version)이 서버보다 오래됐는지 */
+function pageBundleIsStale(serverMeta) {
+  if (!serverMeta?.build) return false;
+  const embedded = getPageDeployVersion();
+  if (!embedded) return false;
+  if (serverMeta.commitSha && embedded.commitSha) {
+    return serverMeta.commitSha !== embedded.commitSha;
+  }
+  if (serverMeta.updatedAt && embedded.updatedAt) {
+    return serverMeta.updatedAt !== embedded.updatedAt;
+  }
+  return Number(serverMeta.build) !== Number(embedded.build);
+}
+
 function serverVersionIsNewer(meta, seen) {
-  if (!meta?.build || !seen) return false;
-  if (meta.commitSha && seen.commitSha) return meta.commitSha !== seen.commitSha;
-  if (meta.updatedAt && seen.updatedAt) return meta.updatedAt !== seen.updatedAt;
+  if (!meta?.build) return false;
+  if (!seen) return true;
+  if (meta.commitSha && (!seen.commitSha || meta.commitSha !== seen.commitSha)) return true;
+  if (meta.updatedAt && seen.updatedAt && meta.updatedAt !== seen.updatedAt) return true;
   return Number(meta.build) !== Number(seen.build);
+}
+
+function serviceWorkerIsBehind(serverMeta) {
+  if (!serverMeta?.build) return false;
+  const controllerBuild = getControllerBuild();
+  if (!controllerBuild) return Number(serverMeta.build) > 0;
+  return Number(serverMeta.build) > controllerBuild;
+}
+
+function shouldPromptAppUpdate(serverMeta) {
+  if (!serverMeta?.build) return false;
+  if (pageBundleIsStale(serverMeta)) return true;
+  if (serviceWorkerIsBehind(serverMeta)) return true;
+  const seen = readSeenAppVersion();
+  if (!seen) return false;
+  return serverVersionIsNewer(serverMeta, seen);
 }
 
 function showAppUpdateBanner(meta) {
@@ -127,23 +164,20 @@ function showAppUpdateBanner(meta) {
 async function bootstrapAppVersionCheck() {
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
-  const seen = readSeenAppVersion();
-  if (!seen) {
-    writeSeenAppVersion(meta);
+  if (shouldPromptAppUpdate(meta)) {
+    showAppUpdateBanner(meta);
     return;
   }
-  if (serverVersionIsNewer(meta, seen)) showAppUpdateBanner(meta);
+  const seen = readSeenAppVersion();
+  if (!seen) writeSeenAppVersion(meta);
 }
 
 async function checkAppVersionUpdate() {
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
-  const seen = readSeenAppVersion();
-  if (!seen) {
-    writeSeenAppVersion(meta);
-    return;
+  if (shouldPromptAppUpdate(meta)) {
+    showAppUpdateBanner(meta);
   }
-  if (serverVersionIsNewer(meta, seen)) showAppUpdateBanner(meta);
 }
 
 async function purgeInstalledAppCaches() {
@@ -243,11 +277,8 @@ async function syncServiceWorker() {
   const serverBuild = versionInfo?.build ?? 0;
   const controllerBuild = getControllerBuild();
 
-  if (versionInfo) {
-    const seen = readSeenAppVersion();
-    if (seen && serverVersionIsNewer(versionInfo, seen)) {
-      showAppUpdateBanner(versionInfo);
-    }
+  if (versionInfo && shouldPromptAppUpdate(versionInfo)) {
+    showAppUpdateBanner(versionInfo);
   }
 
   if (!versionInfo?.build) return;

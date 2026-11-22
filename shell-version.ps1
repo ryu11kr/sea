@@ -97,5 +97,8 @@ function Sync-ShellVersion {
   $utf8 = New-Object Text.UTF8Encoding $false
   [IO.File]::WriteAllText($versionPath, ($version | ConvertTo-Json -Compress), $utf8)
   [IO.File]::WriteAllText($statePath, ($newState | ConvertTo-Json -Compress), $utf8)
+  $deployJs = "window.SEA_DEPLOY_VERSION=" + ($version | ConvertTo-Json -Compress) + ";"
+  $deployPath = Join-Path $Root "deploy-version.js"
+  [IO.File]::WriteAllText($deployPath, $deployJs, $utf8)
   return $build
 }
