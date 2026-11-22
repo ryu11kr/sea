@@ -217,8 +217,10 @@ async function applyAppUpdate() {
     }
     markAppUpdateCompletePending();
     const url = new URL(location.href);
+    url.search = "";
+    url.hash = "";
     url.searchParams.set("v", pending || String(Date.now()));
-    location.replace(url.toString());
+    location.replace(url.href);
   };
 
   if (registration) {

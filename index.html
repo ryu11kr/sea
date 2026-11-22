@@ -197,7 +197,12 @@
         <div id="map-container" class="map-container" aria-label="지도"></div>
         <p id="map-center-address" class="map-center-address" aria-live="polite"></p>
 
-        <form id="point-save-form" class="point-save-form">
+        <form
+          id="point-save-form"
+          class="point-save-form"
+          novalidate
+          onsubmit="event.preventDefault(); return false;"
+        >
           <label class="field-label" for="point-name-input">포인트 이름</label>
           <input
             id="point-name-input"
@@ -205,10 +210,13 @@
             type="text"
             maxlength="40"
             placeholder="예: 주문진항"
-            required
+            autocomplete="off"
+            enterkeyhint="done"
           />
           <div class="map-actions">
-            <button type="submit" class="big-btn primary">포인트 저장하기</button>
+            <button type="button" id="btn-save-point" class="big-btn primary">
+              포인트 저장하기
+            </button>
             <button type="button" id="btn-cancel-map" class="big-btn ghost back-btn">
               취소
             </button>

@@ -135,9 +135,16 @@ function bindUi() {
     }
   });
   bindMapSearchHintDialog();
+  $("#btn-save-point")?.addEventListener("click", () => savePointFromMap());
   $("#point-save-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     savePointFromMap();
+  });
+  $("#point-name-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      savePointFromMap();
+    }
   });
   $("#btn-back-list")?.addEventListener("click", showListView);
   $("#btn-delete-point")?.addEventListener("click", deleteActivePoint);
