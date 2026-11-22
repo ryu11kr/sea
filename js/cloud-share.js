@@ -228,12 +228,6 @@ export function resolveSessionEmail(user) {
 }
 
 let pendingShareIncomingCount = 0;
-let shareRefreshBtnBound = false;
-
-function signedInForShare() {
-  const logoutBtn = document.querySelector("#cloud-sync-logout");
-  return Boolean(logoutBtn && !logoutBtn.hidden);
-}
 
 function apiBase() {
   return new URL("./api/", window.location.href).href;
@@ -291,14 +285,14 @@ function describeShareError(err) {
   if (code === "invalid_email") return "Gmail 형식을 확인해 주세요.";
   if (code === "login_required") return "다시 구글 로그인 후 시도해 주세요.";
   if (code === "not_found") {
-    return "공유 요청을 찾지 못했습니다. «공유 요청 확인»으로 목록을 새로 고친 뒤 다시 시도해 주세요.";
+    return "공유 요청을 찾지 못했습니다. 잠시 후 팝업이 다시 뜨는지 확인하거나, 보내는 분에게 다시 공유해 달라고 해 주세요.";
   }
   if (code === "forbidden") {
     return "이 공유 요청은 지금 로그인한 지메일로 받은 것이 아닙니다. 받는 주소와 같은 계정으로 로그인해 주세요.";
   }
-  if (code === "not_pending") return "이미 처리된 공유 요청입니다. «공유 요청 확인»을 눌러 주세요.";
+  if (code === "not_pending") return "이미 처리된 공유 요청입니다.";
   if (code === "invalid_request_id") {
-    return "공유 요청 ID가 올바르지 않습니다. «공유 요청 확인»으로 목록을 새로 고친 뒤 다시 시도해 주세요.";
+    return "공유 요청 ID가 올바르지 않습니다. 잠시 후 팝업을 다시 확인해 주세요.";
   }
   if (code === "server_db_mismatch") {
     return "요청은 보이지만 서버에서 찾지 못했습니다. 보내는 쪽에서 지금 로그인한 지메일로 다시 공유해 주세요.";
@@ -700,9 +694,6 @@ export async function refreshIncomingShareRequests(
   let data = [];
   /** @type {unknown} */
   let error = null;
-  /** @type {{ checkedAs?: string, debug?: { pendingTotal?: number, matched?: number, sampleRecipients?: string[] } } | null} */
-  let apiMeta = null;
-
   const res = await fetchPendingByEmail(client, plain);
   if (res.error) error = res.error;
   else if (res.data?.length) data = res.data;
@@ -715,39 +706,15 @@ export async function refreshIncomingShareRequests(
 
   try {
     const json = await authFetch("share-incoming");
-    apiMeta = { checkedAs: json?.checkedAs, debug: json?.debug };
     if (Array.isArray(json?.requests) && json.requests.length) {
       const byId = new Map(data.map((r) => [String(r.id), r]));
       for (const r of json.requests) {
         if (r?.id) byId.set(String(r.id), r);
       }
       data = [...byId.values()];
-    } else if (!data.length && json?.debug) {
-      apiMeta.debug = json.debug;
     }
   } catch (apiErr) {
     console.warn("share-incoming API", apiErr);
-  }
-
-  const checkedEl = document.querySelector("#sea-share-checked-as");
-  if (checkedEl) {
-    const label = apiMeta?.checkedAs || plain;
-    if (signedInForShare()) {
-      checkedEl.hidden = false;
-      if (data.length) {
-        checkedEl.textContent = `공유 요청 ${data.length}건 (로그인: ${label})`;
-      } else {
-        const d = apiMeta?.debug;
-        if (d && d.pendingTotal > 0) {
-          const samples = (d.sampleRecipients || []).join(", ");
-          checkedEl.textContent = `로그인: ${label}. DB에 대기 ${d.pendingTotal}건 있음. 받는 주소: ${samples} — 보낼 때 ${label} 로 보냈는지 확인해 주세요.`;
-        } else {
-          checkedEl.textContent = `로그인: ${label}. DB에 대기 요청 없음 — 보내는 쪽에서 물때첩으로 다시 공유해 주세요.`;
-        }
-      }
-    } else {
-      checkedEl.hidden = true;
-    }
   }
 
   if (error) {
@@ -762,16 +729,12 @@ export async function refreshIncomingShareRequests(
       listEl.replaceChildren();
     }
     pendingShareIncomingCount = 0;
-    syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null, undefined, 0);
+    syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null);
     return;
   }
 
   pendingShareIncomingCount = data.length;
-  syncSeaShareTeaserVisibility(
-    sess.session?.user ? { user: sess.session.user } : null,
-    undefined,
-    pendingShareIncomingCount
-  );
+  syncSeaShareTeaserVisibility(sess.session?.user ? { user: sess.session.user } : null);
 
   if (listEl) {
     listEl.replaceChildren();
@@ -850,42 +813,26 @@ let busShareTeaserListenerBound = false;
  * @param {import("@supabase/supabase-js").Session | null | undefined} session
  * @param {number | undefined} stopCount
  */
-export function syncSeaShareReceiveBlock(signedIn, pendingIncoming) {
-  const block = document.querySelector("#sea-share-receive-block");
-  const refreshBtn = document.querySelector("#sea-share-refresh-incoming");
-  if (block) block.hidden = !signedIn;
-  if (refreshBtn) refreshBtn.hidden = !signedIn;
-  void pendingIncoming;
-}
-
-export function syncSeaShareTeaserVisibility(session, stopCount, pendingIncoming) {
+export function syncSeaShareTeaserVisibility(session, stopCount) {
   const teaser = document.querySelector("#sea-share-teaser");
   const sendWrap = document.querySelector("#sea-share-send-wrap");
   const needPoints = document.querySelector("#sea-share-send-need-points");
+  if (!teaser) return;
   const signedIn = Boolean(session?.user);
   const count =
     typeof stopCount === "number" && Number.isFinite(stopCount)
       ? stopCount
       : getLocalPointCount();
-  const pending =
-    typeof pendingIncoming === "number" && Number.isFinite(pendingIncoming)
-      ? pendingIncoming
-      : pendingShareIncomingCount;
-
-  syncSeaShareReceiveBlock(signedIn, pending);
-
-  if (!teaser) return;
   const showSend = signedIn && count > 0;
-  teaser.hidden = !signedIn;
-  if (!signedIn) {
+  teaser.hidden = !showSend;
+  if (!showSend) {
     teaser.open = false;
     if (sendWrap) sendWrap.hidden = true;
     if (needPoints) needPoints.hidden = true;
     return;
   }
-  if (sendWrap) sendWrap.hidden = !showSend;
-  if (needPoints) needPoints.hidden = showSend;
-  if (pending > 0) teaser.open = true;
+  if (sendWrap) sendWrap.hidden = false;
+  if (needPoints) needPoints.hidden = true;
 }
 
 function bindSeaShareTeaserStopListener() {
@@ -896,7 +843,7 @@ function bindSeaShareTeaserStopListener() {
     const signedIn = Boolean(logoutBtn && !logoutBtn.hidden);
     const stopCount =
       typeof ev?.detail?.count === "number" ? ev.detail.count : undefined;
-    syncSeaShareTeaserVisibility(signedIn ? { user: {} } : null, stopCount, pendingShareIncomingCount);
+    syncSeaShareTeaserVisibility(signedIn ? { user: {} } : null, stopCount);
   });
 }
 
@@ -914,27 +861,11 @@ export async function initSeaShareUi(client, session, setStatus) {
 
   if (!session?.user) {
     syncSeaShareTeaserVisibility(null);
-    syncSeaShareReceiveBlock(false, 0);
     return;
   }
 
-  syncSeaShareReceiveBlock(true, pendingShareIncomingCount);
+  syncSeaShareTeaserVisibility(session);
   bindSeaShareModalScrollLock();
-
-  const refreshBtn = document.querySelector("#sea-share-refresh-incoming");
-  if (refreshBtn && !shareRefreshBtnBound) {
-    shareRefreshBtnBound = true;
-    refreshBtn.addEventListener("click", async () => {
-      refreshBtn.disabled = true;
-      setStatus?.("공유 요청 확인 중…");
-      try {
-        await refreshIncomingForSession(client, session, incomingEl, setStatus);
-      } finally {
-        refreshBtn.disabled = false;
-        setStatus?.("");
-      }
-    });
-  }
 
   if (!shareUiBound) {
     shareUiBound = true;
@@ -974,9 +905,7 @@ export async function initSeaShareUi(client, session, setStatus) {
           await sendShareRequestViaClient(client, userId, fromEmail, toEmail);
           sendInput.value = "";
           hideShareAcceptBusy(setStatus);
-          showSeaShareHint(
-            `공유 요청을 보냈습니다.\n\n받는 사람: ${toEmail}\n\n받는 분은 sea.uxpwa.com 에서 같은 지메일로 로그인한 뒤 「공유 요청 확인」을 눌러 주세요.`
-          );
+          showSeaShareHint(`공유 요청을 보냈습니다.\n\n받는 사람: ${toEmail}`);
         } catch (err) {
           console.error(err);
           hideShareAcceptBusy(setStatus);
@@ -995,11 +924,5 @@ export async function initSeaShareUi(client, session, setStatus) {
     }
   }
 
-  await refreshIncomingForSession(client, session, incomingEl, setStatus);
-  syncSeaShareTeaserVisibility(session, undefined, pendingShareIncomingCount);
-
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("share") === "pending" && incomingEl) {
-    incomingEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
+  void refreshIncomingForSession(client, session, incomingEl, setStatus);
 }

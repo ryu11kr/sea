@@ -75,19 +75,6 @@
         <p id="sea-status" class="sea-status" aria-live="polite" role="status"></p>
 
         <div class="list-info-panel">
-          <div id="sea-share-receive-block" class="sea-share-receive-block panel-lite" hidden>
-            <p class="sea-share-receive-lede">지인이 보낸 <strong>포인트 공유</strong> 요청</p>
-            <div
-              id="sea-share-incoming"
-              class="sea-share-incoming"
-              hidden
-              aria-live="polite"
-            ></div>
-            <button type="button" id="sea-share-refresh-incoming" class="big-btn secondary" hidden>
-              공유 요청 확인
-            </button>
-            <p id="sea-share-checked-as" class="sea-share-checked-as" hidden aria-live="polite"></p>
-          </div>
           <details id="cloud-sync-teaser" class="home-more panel-lite cloud-sync-teaser">
             <summary>포인트 저장</summary>
             <div id="cloud-sync-teaser-intro">
@@ -120,7 +107,7 @@
             <summary>포인트 공유</summary>
             <p class="sea-share-help">
               같은 구글 로그인을 쓰는 지인에게 <strong>내 바다 포인트 목록</strong>을 보냅니다. 받는
-              사람이 수락하면 목록에 합쳐집니다.
+              분은 로그인만 하면 <strong>팝업</strong>으로 요청이 뜹니다.
             </p>
             <div id="sea-share-panel" class="sea-share-panel">
               <div id="sea-share-send-wrap" class="sea-share-send-wrap">
@@ -140,6 +127,7 @@
               <p id="sea-share-send-need-points" class="sea-share-send-need-points" hidden>
                 포인트를 하나 이상 저장한 뒤 다른 분에게 보낼 수 있습니다.
               </p>
+              <div id="sea-share-incoming" class="sea-share-incoming" hidden aria-live="polite"></div>
             </div>
           </details>
 

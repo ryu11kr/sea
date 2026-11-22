@@ -643,31 +643,6 @@ body.sea-app {
   margin-top: 0.85rem;
 }
 
-.sea-share-receive-block {
-  margin-bottom: 0.65rem;
-  padding: 0.85rem 1rem;
-}
-
-.sea-share-receive-lede {
-  margin: 0 0 0.55rem;
-  font-size: 1.1rem;
-  font-weight: 700;
-  line-height: 1.5;
-  color: var(--brand-deep);
-}
-
-.sea-share-checked-as {
-  margin: 0.55rem 0 0;
-  font-size: 1.02rem;
-  line-height: 1.48;
-  color: var(--muted);
-}
-
-#sea-share-refresh-incoming {
-  margin-top: 0.65rem;
-  width: 100%;
-}
-
 .sea-share-send-need-points {
   margin: 0.5rem 0 0;
   font-size: 1.05rem;
