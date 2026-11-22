@@ -1,0 +1,29 @@
+{
+  "id": "https://sea.uxpwa.com/",
+  "name": "물때첩",
+  "short_name": "물때첩",
+  "description": "바다 포인트 물때·날씨. 지도에서 위치를 저장하고 조석·기상을 확인합니다.",
+  "lang": "ko",
+  "dir": "ltr",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E0F2FE",
+  "theme_color": "#0EA5E9",
+  "categories": ["utilities"],
+  "icons": [
+    {
+      "purpose": "any",
+      "type": "image/png",
+      "sizes": "192x192",
+      "src": "icons/icon-192.png"
+    },
+    {
+      "purpose": "any",
+      "type": "image/png",
+      "sizes": "512x512",
+      "src": "icons/icon-512.png"
+    }
+  ]
+}

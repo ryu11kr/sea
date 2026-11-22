@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0EA5E9" />
+    <meta
+      name="description"
+      content="물때첩 — 자주 가는 낚시 포인트를 등록하고 오늘의 물때·조석·바다 날씨를 확인하는 PWA"
+    />
+    <link rel="canonical" href="https://sea.uxpwa.com/" />
+    <meta property="og:title" content="물때첩 — 바다 포인트 물때·날씨" />
+    <meta property="og:url" content="https://sea.uxpwa.com/" />
+    <meta property="og:site_name" content="물때첩" />
+    <title>물때첩 — 바다 포인트 물때·날씨</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body class="sea-app">
+    <div class="wrap sea-wrap">
+      <h1 class="app-name" id="app-title">물때첩</h1>
+      <p class="app-guide" id="app-lede">
+        자주 가는 바다 포인트를 등록하면
+        <br class="resp-br" />
+        물때와 날씨를 한곳에서 볼 수 있습니다.
+      </p>
+      <hr id="app-home-divider" class="app-home-divider" hidden aria-hidden="true" />
+
+      <!-- 목록 -->
+      <section id="view-list" class="view-list">
+        <div id="point-empty" class="point-empty-card">
+          <p class="point-empty-title">등록된 포인트가 없습니다</p>
+          <p class="point-empty-desc">
+            해수욕장·항구·갯바위 등 자주 가는 위치를 저장해 두면 오늘의 물때와 날씨를 빠르게 볼 수 있습니다.
+          </p>
+        </div>
+        <ul id="point-list" class="point-list" hidden></ul>
+
+        <div class="big-actions list-actions">
+          <button type="button" id="btn-new-point" class="big-btn primary">
+            새 포인트 등록
+          </button>
+        </div>
+
+        <p id="sea-status" class="sea-status" aria-live="polite" role="status"></p>
+
+        <div class="home-install-block">
+          <button id="install-btn" type="button" class="big-btn install-btn" hidden>
+            앱 설치하기
+          </button>
+        </div>
+      </section>
+
+      <!-- 지도 등록 -->
+      <section id="view-map" class="view-map" hidden aria-labelledby="map-heading">
+        <h2 id="map-heading" class="screen-title">포인트 위치 선택</h2>
+        <p class="map-help">지도를 움직여 가운데 핀 위치를 정한 뒤 저장하세요.</p>
+
+        <div class="map-search-row">
+          <input
+            id="map-search-input"
+            class="text-field-input map-search-input"
+            type="search"
+            placeholder="지역·해변·항구 이름 검색"
+            autocomplete="off"
+            aria-label="주소 검색"
+          />
+          <button type="button" id="map-search-btn" class="big-btn secondary map-search-btn">
+            검색
+          </button>
+        </div>
+        <ul id="map-search-results" class="map-search-results" hidden></ul>
+
+        <div id="map-container" class="map-container" aria-label="지도"></div>
+        <p id="map-center-address" class="map-center-address" aria-live="polite"></p>
+
+        <form id="point-save-form" class="point-save-form">
+          <label class="field-label" for="point-name-input">포인트 이름</label>
+          <input
+            id="point-name-input"
+            class="text-field-input"
+            type="text"
+            maxlength="40"
+            placeholder="예: 주문진항"
+            required
+          />
+          <div class="map-actions">
+            <button type="submit" class="big-btn primary">포인트 저장하기</button>
+            <button type="button" id="btn-cancel-map" class="big-btn ghost back-btn">
+              취소
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- 상세: 물때·날씨 -->
+      <section id="view-detail" class="view-detail" hidden aria-labelledby="detail-point-name">
+        <h2 id="detail-point-name" class="detail-point-name"></h2>
+        <p id="detail-address" class="detail-meta"></p>
+
+        <article class="data-card" aria-labelledby="tide-heading">
+          <h3 id="tide-heading" class="data-card-title">오늘의 물때</h3>
+          <p id="tide-date" class="data-card-sub"></p>
+          <p id="tide-phase" class="tide-phase"></p>
+          <ul id="tide-times" class="tide-times"></ul>
+          <p id="tide-station-note" class="data-note"></p>
+        </article>
+
+        <article class="data-card" aria-labelledby="weather-heading">
+          <h3 id="weather-heading" class="data-card-title">오늘의 날씨</h3>
+          <div id="weather-current" class="weather-current"></div>
+          <ul id="weather-hourly" class="weather-hourly"></ul>
+        </article>
+
+        <div class="detail-actions">
+          <button type="button" id="btn-edit-point" class="big-btn secondary">위치 다시 잡기</button>
+          <button type="button" id="btn-delete-point" class="big-btn ghost danger-text">
+            포인트 삭제
+          </button>
+          <button type="button" id="btn-back-list" class="big-btn back-btn back-btn-bottom">
+            ← 포인트 목록
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

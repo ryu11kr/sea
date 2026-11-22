@@ -1,0 +1,4 @@
+.pwa-build-state.json
+.cursor/
+.env
+.env.*

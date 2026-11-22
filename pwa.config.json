@@ -1,0 +1,15 @@
+{
+  "slug": "sea",
+  "name": "물때첩 - 낚시 포인트 물때·날씨",
+  "shortName": "물때첩",
+  "publicUrl": "https://sea.uxpwa.com",
+  "description": "자주 가는 바다 포인트를 등록하고 오늘의 물때와 날씨를 한눈에 보는 앱",
+  "seoDescription": "낚시 포인트 물때표, 조석, 해양 날씨. 지도에서 위치를 저장하고 물때·풍속·파고를 확인하세요.",
+  "seoKeywords": "물때, 조석, 물때표, 낚시 날씨, 바다 날씨, 물때첩, 조금, 만조, 간조",
+  "lang": "ko",
+  "themeColor": "#0EA5E9",
+  "backgroundColor": "#E0F2FE",
+  "cachePrefix": "sea-tide",
+  "orientation": "portrait",
+  "categories": ["utilities"]
+}

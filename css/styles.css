@@ -1,0 +1,375 @@
+:root {
+  color-scheme: light;
+  --bg: #e0f2fe;
+  --bg-raised: #ffffff;
+  --line: #bae6fd;
+  --text: #0c4a6e;
+  --muted: #0369a1;
+  --brand: #0ea5e9;
+  --brand-dark: #0284c7;
+  --brand-tint: #f0f9ff;
+  --brand-tint-border: #7dd3fc;
+  --danger: #be123c;
+  --shadow: 0 18px 50px rgba(14, 116, 144, 0.12);
+  font-family: "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+
+.sea-wrap {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2.5rem;
+}
+
+.app-name {
+  margin: 0 0 0.35rem;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.app-guide {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.app-home-divider {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0 0 1rem;
+}
+
+.point-empty-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1.25rem 1rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.point-empty-title {
+  margin: 0 0 0.5rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.point-empty-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+.point-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.point-list-item {
+  margin: 0;
+}
+
+.point-list-btn {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--brand-tint-border);
+  background: var(--bg-raised);
+  border-radius: 0.85rem;
+  padding: 0.85rem 1rem;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.point-list-btn strong {
+  display: block;
+  font-size: 1.08rem;
+}
+
+.point-list-btn span {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.big-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.big-btn {
+  display: block;
+  width: 100%;
+  border-radius: 0.85rem;
+  border: 2px solid transparent;
+  padding: 0.85rem 1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.big-btn.primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand-dark);
+}
+
+.big-btn.secondary {
+  background: var(--brand-tint);
+  color: var(--text);
+  border-color: var(--brand-tint-border);
+}
+
+.big-btn.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.big-btn.danger-text {
+  color: var(--danger);
+}
+
+.big-btn.back-btn {
+  margin-top: 0.5rem;
+}
+
+.text-field-input {
+  width: 100%;
+  border: 1px solid var(--brand-tint-border);
+  border-radius: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.field-label {
+  display: block;
+  margin: 0.75rem 0 0.35rem;
+  font-weight: 600;
+}
+
+.sea-status {
+  min-height: 1.5em;
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.screen-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.25rem;
+}
+
+.map-help {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.map-search-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.map-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.map-search-btn {
+  width: auto;
+  flex-shrink: 0;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.map-search-results {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  max-height: 9rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--bg-raised);
+}
+
+.map-search-results li button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+
+.map-search-results li:last-child button {
+  border-bottom: 0;
+}
+
+.map-container {
+  height: 52vh;
+  min-height: 220px;
+  border-radius: 0.85rem;
+  overflow: hidden;
+  border: 2px solid var(--brand-tint-border);
+  position: relative;
+}
+
+.map-container::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -28px 0 0 -14px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 36'%3E%3Cpath fill='%23dc2626' d='M12 0C7 0 3.5 4.5 3.5 10c0 7.5 8.5 24 8.5 24S20.5 17.5 20.5 10C20.5 4.5 17 0 12 0zm0 14a4 4 0 110-8 4 4 0 010 8z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  z-index: 500;
+  pointer-events: none;
+}
+
+.map-center-address {
+  margin: 0.5rem 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.map-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.detail-point-name {
+  margin: 0 0 0.25rem;
+  font-size: 1.35rem;
+}
+
+.detail-meta {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.data-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1rem;
+  margin-bottom: 0.85rem;
+  box-shadow: var(--shadow);
+}
+
+.data-card-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+}
+
+.data-card-sub {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.tide-phase {
+  margin: 0 0 0.65rem;
+  font-weight: 700;
+  color: var(--brand-dark);
+}
+
+.tide-times {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.tide-times li {
+  background: var(--brand-tint);
+  border-radius: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.95rem;
+}
+
+.data-note {
+  margin: 0.65rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.weather-current {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.98rem;
+}
+
+.weather-hourly {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0 0;
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.weather-hourly li {
+  flex: 0 0 auto;
+  min-width: 4.2rem;
+  text-align: center;
+  background: var(--brand-tint);
+  border-radius: 0.55rem;
+  padding: 0.45rem 0.35rem;
+  font-size: 0.85rem;
+}
+
+.detail-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.home-install-block {
+  margin-top: 1.25rem;
+}
+
+@media (min-width: 400px) {
+  .resp-br {
+    display: none;
+  }
+}
