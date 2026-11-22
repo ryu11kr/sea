@@ -157,7 +157,6 @@ function collapseListPanelDetails() {
 function showListView() {
   destroyAllMaps();
   activePointId = null;
-  loadState();
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.setAttribute("hidden", "");
@@ -409,10 +408,34 @@ async function runMapSearch() {
   }
 }
 
+function showPointSaveHint(message) {
+  const dialog = $("#map-search-hint-dialog");
+  const body = $("#map-search-hint-body");
+  const title = $("#map-search-hint-title");
+  if (!dialog || !body) {
+    setStatus(message);
+    return;
+  }
+  if (title) title.textContent = "포인트 저장";
+  body.textContent = message;
+  if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+}
+
 function savePointFromMap() {
   const name = $("#point-name-input")?.value?.trim();
-  if (!name) return;
-  const address = $("#map-center-address")?.textContent?.trim() || "";
+  if (!name) {
+    showPointSaveHint("포인트 이름을 입력한 뒤 «포인트 저장하기»를 눌러 주세요.");
+    $("#point-name-input")?.focus();
+    return;
+  }
+  if (!Number.isFinite(mapCenter.lat) || !Number.isFinite(mapCenter.lon)) {
+    showPointSaveHint("지도에서 위치를 먼저 정해 주세요.");
+    return;
+  }
+  let address = $("#map-center-address")?.textContent?.trim() || "";
+  if (address === "주소 확인 중…") {
+    address = `${mapCenter.lat.toFixed(5)}, ${mapCenter.lon.toFixed(5)}`;
+  }
   const now = new Date().toISOString();
 
   if (editPointId) {
@@ -443,6 +466,8 @@ function savePointFromMap() {
   };
   seaPoints.unshift(point);
   saveState();
+  renderPointList();
+  setStatus(`「${name}」 포인트를 저장했습니다.`);
   showDetailView(point.id);
 }
 

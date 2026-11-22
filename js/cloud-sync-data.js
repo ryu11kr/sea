@@ -91,8 +91,22 @@ function readLocalPoints() {
   return { points: storagePoints, updatedAt: null };
 }
 
+function storagePointCount() {
+  try {
+    const raw = localStorage.getItem(SEA_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function applyLocal(points) {
   const normalized = ensurePointIds(points);
+  if (normalized.length === 0 && storagePointCount() > 0 && !window.__seaCloudSyncAllowEmpty) {
+    console.warn("blocked empty applyLocal over stored points");
+    return;
+  }
   const apply = window.seaAppApplyPoints;
   if (typeof apply === "function") {
     apply(normalized);
@@ -118,28 +132,38 @@ export async function pullAndMergeCloudState(client, userId) {
   const localState = readLocalPoints();
   const localPoints = ensurePointIds(localState.points || []);
   const remotePoints = ensurePointIds(Array.isArray(data?.points) ? data.points : []);
-  let trimmed = mergePoints(localPoints, remotePoints).slice(0, CLOUD_MAX_POINTS);
 
-  // 클라우드 동기화가 로컬·메모리를 빈 목록으로 덮어쓰는 사고 방지
-  if (trimmed.length === 0) {
-    if (localPoints.length > 0) {
-      trimmed = localPoints.slice(0, CLOUD_MAX_POINTS);
-    } else if (remotePoints.length > 0) {
-      trimmed = remotePoints.slice(0, CLOUD_MAX_POINTS);
-    }
+  // 클라우드가 비어 있는데 이 기기에 포인트가 있으면 덮어쓰지 않고 업로드만
+  if (remotePoints.length === 0 && localPoints.length > 0) {
+    scheduleCloudPush(client, userId, 400);
+    return;
   }
 
-  window.__seaCloudSyncApplying = true;
-  try {
-    applyLocal(trimmed);
-  } finally {
-    window.__seaCloudSyncApplying = false;
+  let trimmed = mergePoints(localPoints, remotePoints).slice(0, CLOUD_MAX_POINTS);
+
+  if (trimmed.length === 0 && localPoints.length > 0) {
+    trimmed = localPoints.slice(0, CLOUD_MAX_POINTS);
+  }
+
+  // 병합 결과가 로컬보다 줄었으면 로컬 유지 (원격 빈 배열·오류 방지)
+  if (trimmed.length < localPoints.length && localPoints.length > 0) {
+    trimmed = mergePoints(localPoints, trimmed).slice(0, CLOUD_MAX_POINTS);
+  }
+
+  const shouldApply = remotePoints.length > 0 || localPoints.length === 0;
+  if (shouldApply) {
+    window.__seaCloudSyncApplying = true;
+    try {
+      applyLocal(trimmed);
+    } finally {
+      window.__seaCloudSyncApplying = false;
+    }
   }
 
   const localAt = localPoints.reduce((m, p) => Math.max(m, new Date(p.updatedAt || 0).getTime()), 0);
   const remoteAt = data?.updated_at ? new Date(data.updated_at).getTime() : 0;
   const mergedAt = trimmed.reduce((m, p) => Math.max(m, new Date(p.updatedAt || 0).getTime()), 0);
-  if ((localAt > remoteAt || mergedAt > remoteAt) && trimmed.length > 0) {
+  if (localPoints.length > 0 && (localAt > remoteAt || mergedAt > remoteAt)) {
     scheduleCloudPush(client, userId, 400);
   }
 }

@@ -2,6 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import {
   bindCloudSaveListener,
   runFullCloudSync,
+  scheduleCloudPush,
   setCloudSyncStatusCallback,
 } from "./cloud-sync-data.js";
 import {
@@ -226,19 +227,24 @@ function bindAccountDeleteUi(client, renderSession) {
       await yieldToPaint();
       stopIncomingSharePolling();
       cloudSaveListenerBound = false;
-      if (typeof window.seaAppClearAllLocalData === "function") {
-        window.seaAppClearAllLocalData();
-      }
+      window.__seaCloudSyncAllowEmpty = true;
       try {
-        await client.auth.signOut({ scope: "global" });
-      } catch {
-        await client.auth.signOut({ scope: "local" });
-      }
-      purgeSupabaseAuthKeys();
-      await renderSession(null);
-      hideShareAcceptBusy();
-      if (typeof window.setSeaStatus === "function") {
-        window.setSeaStatus("서비스 탈퇴가 완료되었습니다.");
+        if (typeof window.seaAppClearAllLocalData === "function") {
+          window.seaAppClearAllLocalData();
+        }
+        try {
+          await client.auth.signOut({ scope: "global" });
+        } catch {
+          await client.auth.signOut({ scope: "local" });
+        }
+        purgeSupabaseAuthKeys();
+        await renderSession(null);
+        hideShareAcceptBusy();
+        if (typeof window.setSeaStatus === "function") {
+          window.setSeaStatus("서비스 탈퇴가 완료되었습니다.");
+        }
+      } finally {
+        window.__seaCloudSyncAllowEmpty = false;
       }
     } catch (err) {
       hideShareAcceptBusy();
@@ -397,9 +403,8 @@ async function initGoogleAuthUi(client, cfg) {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !cfg.enabled) return;
     client.auth.getSession().then(({ data }) => {
-      renderSession(data.session?.user ? data.session : null).catch(() => {});
       const userId = data.session?.user?.id;
-      if (userId) runFullCloudSync(client, userId).catch(() => {});
+      if (userId) scheduleCloudPush(client, userId, 500);
     });
   });
 }
