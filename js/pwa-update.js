@@ -148,11 +148,16 @@ function pageBundleIsStale(serverMeta) {
   return Number(serverMeta.build) !== Number(embedded.build);
 }
 
+function isLocalDevHost() {
+  const { hostname, protocol } = window.location;
+  return protocol.startsWith("http") && (hostname === "localhost" || hostname === "127.0.0.1");
+}
+
+/** @param {Record<string, unknown> | null | undefined} meta @param {Record<string, unknown> | null | undefined} seen */
 function serverVersionIsNewer(meta, seen) {
-  if (!meta?.build) return false;
-  if (!seen) return true;
-  if (meta.commitSha && (!seen.commitSha || meta.commitSha !== seen.commitSha)) return true;
-  if (meta.updatedAt && seen.updatedAt && meta.updatedAt !== seen.updatedAt) return true;
+  if (!meta?.build || !seen) return false;
+  if (meta.commitSha && seen.commitSha) return meta.commitSha !== seen.commitSha;
+  if (meta.updatedAt && seen.updatedAt) return meta.updatedAt !== seen.updatedAt;
   return Number(meta.build) !== Number(seen.build);
 }
 
@@ -172,9 +177,16 @@ function pageBundleIsCurrent(serverMeta) {
 
 function shouldPromptAppUpdate(serverMeta) {
   if (!serverMeta?.build) return false;
+  const seen = readSeenAppVersion();
+
+  // 로컬 serve는 HTML 저장 시 version.json·deploy-version을 함께 올려 pageBundle 비교만으로는 배너가 안 뜸 (버스첩과 동일하게 seen 기준)
+  if (isLocalDevHost()) {
+    if (!seen) return false;
+    return serverVersionIsNewer(serverMeta, seen);
+  }
+
   if (pageBundleIsCurrent(serverMeta)) return false;
   if (pageBundleIsStale(serverMeta)) return true;
-  const seen = readSeenAppVersion();
   if (!seen) return true;
   return serverVersionIsNewer(serverMeta, seen);
 }
@@ -191,24 +203,43 @@ function showAppUpdateBanner(meta) {
 }
 
 async function bootstrapAppVersionCheck() {
-  await hydratePageDeployVersionFromNetwork();
+  if (!isLocalDevHost()) await hydratePageDeployVersionFromNetwork();
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
+  const seen = readSeenAppVersion();
+
+  if (isLocalDevHost()) {
+    if (!seen) {
+      writeSeenAppVersion(meta);
+      return;
+    }
+    if (serverVersionIsNewer(meta, seen)) showAppUpdateBanner(meta);
+    return;
+  }
+
   if (shouldPromptAppUpdate(meta)) {
     showAppUpdateBanner(meta);
     return;
   }
-  const seen = readSeenAppVersion();
   if (pageBundleIsCurrent(meta) || !seen) writeSeenAppVersion(meta);
 }
 
 async function checkAppVersionUpdate() {
-  await hydratePageDeployVersionFromNetwork();
+  if (!isLocalDevHost()) await hydratePageDeployVersionFromNetwork();
   const meta = await fetchAppVersionMeta();
   if (!meta?.build) return;
-  if (shouldPromptAppUpdate(meta)) {
-    showAppUpdateBanner(meta);
+
+  if (isLocalDevHost()) {
+    const seen = readSeenAppVersion();
+    if (!seen) {
+      writeSeenAppVersion(meta);
+      return;
+    }
+    if (serverVersionIsNewer(meta, seen)) showAppUpdateBanner(meta);
+    return;
   }
+
+  if (shouldPromptAppUpdate(meta)) showAppUpdateBanner(meta);
 }
 
 async function purgeInstalledAppCaches() {
@@ -337,10 +368,11 @@ function bindAppUpdateUi() {
   maybeShowAppUpdateCompleteDialog();
   bootstrapAppVersionCheck().catch(() => {});
   if (appVersionPollId) clearInterval(appVersionPollId);
+  const pollMs = isLocalDevHost() ? 3_000 : 20_000;
   appVersionPollId = window.setInterval(() => {
     checkAppVersionUpdate().catch(() => {});
     syncServiceWorker().catch(() => {});
-  }, 20_000);
+  }, pollMs);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       checkAppVersionUpdate().catch(() => {});
