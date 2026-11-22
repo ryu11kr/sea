@@ -1,7 +1,7 @@
 /** POST { requestId } — 포인트 공유 거절 */
 
 import { getAuthUser, resolveUserEmail } from "./_lib/auth.js";
-import { readJsonBody, recipientOwnsShareRequest } from "./_lib/email.js";
+import { readJsonBody, recipientOwnsShareRequest, isUuid } from "./_lib/email.js";
 import { getAdminClient } from "./_lib/admin.js";
 
 export default async function handler(req, res) {
@@ -26,6 +26,9 @@ export default async function handler(req, res) {
   const requestId = String(body?.requestId || "").trim();
   if (!requestId) {
     return res.status(400).json({ error: "missing_request_id" });
+  }
+  if (!isUuid(requestId)) {
+    return res.status(400).json({ error: "invalid_request_id" });
   }
 
   const admin = await getAdminClient();

@@ -57,7 +57,14 @@ export function recipientOwnsShareRequest(rowToEmail, userOrEmail) {
 /** Vercel/Node에서 POST JSON 본문 */
 export function readJsonBody(req) {
   const body = req?.body;
-  if (body && typeof body === "object" && !Buffer.isBuffer(body)) return body;
+  if (Buffer.isBuffer(body)) {
+    try {
+      return JSON.parse(body.toString("utf8"));
+    } catch {
+      return {};
+    }
+  }
+  if (body && typeof body === "object") return body;
   if (typeof body === "string") {
     try {
       return JSON.parse(body);
@@ -66,4 +73,11 @@ export function readJsonBody(req) {
     }
   }
   return {};
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isUuid(value) {
+  return UUID_RE.test(String(value || "").trim());
 }

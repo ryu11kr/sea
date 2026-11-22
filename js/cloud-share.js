@@ -297,6 +297,12 @@ function describeShareError(err) {
     return "이 공유 요청은 지금 로그인한 지메일로 받은 것이 아닙니다. 받는 주소와 같은 계정으로 로그인해 주세요.";
   }
   if (code === "not_pending") return "이미 처리된 공유 요청입니다. «공유 요청 확인»을 눌러 주세요.";
+  if (code === "invalid_request_id") {
+    return "공유 요청 ID가 올바르지 않습니다. «공유 요청 확인»으로 목록을 새로 고친 뒤 다시 시도해 주세요.";
+  }
+  if (code === "server_db_mismatch") {
+    return "요청은 보이지만 서버에서 찾지 못했습니다. 보내는 쪽에서 지금 로그인한 지메일로 다시 공유해 주세요.";
+  }
   if (code === "server_not_configured") {
     return "Vercel에 SUPABASE_SERVICE_ROLE_KEY를 넣고 Redeploy 해 주세요. (수락 시 필요)";
   }
@@ -381,6 +387,16 @@ function markPopupDismissed(requestId) {
  * @param {(text: string) => void} setStatus
  * @param {string} requestId
  */
+async function probeShareRequestOnClient(client, requestId) {
+  const { data, error } = await client
+    .from("sea_share_requests")
+    .select("id, status, to_email")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 async function acceptShareRequest(client, userEmail, listEl, setStatus, requestId) {
   showShareAcceptBusy("공유를 수락하는 중…", setStatus);
   await yieldToPaint();
@@ -393,6 +409,22 @@ async function acceptShareRequest(client, userEmail, listEl, setStatus, requestI
     } catch (accErr) {
       if (accErr.code === "server_not_configured") {
         throw Object.assign(new Error("server_not_configured"), accErr);
+      }
+      if (accErr.code === "not_found") {
+        const row = await probeShareRequestOnClient(client, requestId).catch(() => null);
+        if (!row) {
+          const err = new Error("not_found");
+          err.code = "not_found";
+          throw err;
+        }
+        if (row.status !== "pending") {
+          const err = new Error("not_pending");
+          err.code = "not_pending";
+          throw err;
+        }
+        const mismatch = new Error("server_db_mismatch");
+        mismatch.code = "server_db_mismatch";
+        throw mismatch;
       }
       throw accErr;
     }
@@ -454,7 +486,13 @@ async function handleShareActionError(err, requestId, client, userEmail, listEl,
   console.error(err);
   const code = err?.code || err?.message;
   showSeaShareHint(describeShareError(err));
-  if (code === "not_found" || code === "not_pending" || code === "forbidden") {
+  if (
+    code === "not_found" ||
+    code === "not_pending" ||
+    code === "forbidden" ||
+    code === "invalid_request_id" ||
+    code === "server_db_mismatch"
+  ) {
     markPopupDismissed(requestId);
     closeDialog?.();
     await refreshIncomingShareRequests(client, userEmail, listEl, setStatus, requestId);
