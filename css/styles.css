@@ -243,7 +243,7 @@ body {
   position: relative;
 }
 
-.map-container::after {
+.map-container:not(.detail-map)::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -255,6 +255,19 @@ body {
     center / contain no-repeat;
   z-index: 500;
   pointer-events: none;
+}
+
+.detail-map-label {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.detail-map {
+  height: 38vh;
+  min-height: 200px;
+  margin-bottom: 0.75rem;
 }
 
 .map-center-address {

@@ -10,6 +10,10 @@ let seaPoints = [];
 let activePointId = null;
 /** @type {L.Map | null} */
 let map = null;
+/** @type {L.Map | null} */
+let detailMap = null;
+/** @type {L.Marker | null} */
+let detailMapMarker = null;
 /** @type {string | null} */
 let editPointId = null;
 
@@ -71,7 +75,7 @@ function bindUi() {
 }
 
 function showListView() {
-  destroyMap();
+  destroyAllMaps();
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.setAttribute("hidden", "");
@@ -80,6 +84,7 @@ function showListView() {
 }
 
 function showMapView() {
+  destroyDetailMap();
   $("#view-list")?.setAttribute("hidden", "");
   $("#view-map")?.removeAttribute("hidden");
   $("#view-detail")?.setAttribute("hidden", "");
@@ -98,8 +103,9 @@ function showDetailView(pointId) {
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.removeAttribute("hidden");
   $("#detail-point-name").textContent = point.name;
-  $("#detail-address").textContent = point.address;
+  $("#detail-address").textContent = point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
   $("#app-home-divider")?.removeAttribute("hidden");
+  requestAnimationFrame(() => initDetailMap(point));
   loadDetailData(point);
 }
 
@@ -193,6 +199,37 @@ function destroyMap() {
     map.remove();
     map = null;
   }
+}
+
+function destroyDetailMap() {
+  if (detailMap) {
+    detailMap.remove();
+    detailMap = null;
+    detailMapMarker = null;
+  }
+}
+
+function destroyAllMaps() {
+  destroyMap();
+  destroyDetailMap();
+}
+
+function initDetailMap(point) {
+  const el = $("#detail-map-container");
+  if (!el) return;
+  destroyDetailMap();
+  detailMap = L.map(el, {
+    zoomControl: true,
+    attributionControl: true,
+    scrollWheelZoom: true
+  }).setView([point.lat, point.lon], 15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(detailMap);
+  detailMapMarker = L.marker([point.lat, point.lon]).addTo(detailMap);
+  detailMapMarker.bindPopup(escapeHtml(point.name)).openPopup();
+  requestAnimationFrame(() => detailMap?.invalidateSize());
 }
 
 function scheduleAddressLookup() {
@@ -346,6 +383,15 @@ function renderTide(data) {
     return;
   }
 
+  if (data.error && !(data.items || []).length) {
+    if (phaseEl) phaseEl.textContent = "물때 조회 실패 (키는 등록됨)";
+    if (noteEl) {
+      const extra = data.message || "공공데이터 **일반 인증키(디코딩)** 로 Vercel 값을 바꾼 뒤 Redeploy 해 보세요.";
+      noteEl.textContent += (noteEl.textContent ? " · " : "") + extra;
+    }
+    return;
+  }
+
   const items = data.items || [];
   const highs = items.filter((i) => i.type === "high");
   const lows = items.filter((i) => i.type === "low");
@@ -439,7 +485,8 @@ async function fetchTide(lat, lon, ymd) {
   const qs = new URLSearchParams({ lat: String(lat), lon: String(lon), date: ymd });
   try {
     const res = await fetch(`/api/tide?${qs}`);
-    if (res.ok) return res.json();
+    const data = await res.json().catch(() => null);
+    if (data) return data;
   } catch {
     /* ignore */
   }
