@@ -391,6 +391,57 @@ body.sea-app .sea-wrap > .app-name {
   font-weight: 800;
 }
 
+.detail-nav-note {
+  margin: 0 0 0.85rem;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.detail-nav-facts {
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.detail-nav-facts > div {
+  margin: 0 0 0.65rem;
+}
+
+.detail-nav-facts dt {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.detail-nav-value {
+  margin: 0;
+  font-size: clamp(1.05rem, 4vw, 1.15rem);
+  line-height: 1.5;
+  font-weight: 700;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.detail-nav-mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-weight: 600;
+  font-size: 1.02rem;
+}
+
+.detail-nav-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.detail-nav-actions .big-btn {
+  width: 100%;
+  text-decoration: none;
+  text-align: center;
+  box-sizing: border-box;
+}
+
 .detail-meta {
   margin: 0 0 1rem;
   color: var(--muted);

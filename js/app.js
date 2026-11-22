@@ -108,6 +108,7 @@ function exposeSeaAppApi() {
         $("#detail-point-name").textContent = point.name;
         $("#detail-address").textContent =
           point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+        renderDetailNav(point);
       }
     }
   };
@@ -158,6 +159,89 @@ function bindUi() {
     editPointId = activePointId;
     startMapView();
   });
+  bindDetailNavUi();
+}
+
+function navSearchLabel(point) {
+  const name = String(point.name || "").trim();
+  const addr = String(point.address || "").trim();
+  const coord = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
+  if (name && addr && !addr.includes(name)) return `${name} · ${addr}`;
+  if (name) return name;
+  if (addr) return addr;
+  return coord;
+}
+
+function tmapRouteHref(point) {
+  const goalname = encodeURIComponent(point.name?.trim() || "낚시 포인트");
+  const x = Number(point.lon);
+  const y = Number(point.lat);
+  return `tmap://route?goalname=${goalname}&goalx=${x}&goaly=${y}`;
+}
+
+function kakaoMapHref(point) {
+  const name = encodeURIComponent(point.name?.trim() || "포인트");
+  return `https://map.kakao.com/link/to/${name},${point.lat},${point.lon}`;
+}
+
+/** @param {SeaPoint} point */
+function renderDetailNav(point) {
+  const searchText = navSearchLabel(point);
+  const addr =
+    point.address?.trim() || "저장된 주소 없음 (좌표로 길찾기를 이용해 주세요)";
+  const coords = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
+
+  const searchEl = $("#detail-nav-search-text");
+  const addrEl = $("#detail-nav-address-text");
+  const coordsEl = $("#detail-nav-coords-text");
+  if (searchEl) searchEl.textContent = searchText;
+  if (addrEl) addrEl.textContent = addr;
+  if (coordsEl) coordsEl.textContent = coords;
+
+  const tmap = $("#detail-nav-tmap");
+  const kakao = $("#detail-nav-kakao");
+  if (tmap) tmap.href = tmapRouteHref(point);
+  if (kakao) kakao.href = kakaoMapHref(point);
+}
+
+async function copyNavText(text, okMsg) {
+  const value = String(text || "").trim();
+  if (!value) {
+    setStatus("복사할 내용이 없습니다.");
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setStatus(okMsg);
+  } catch {
+    setStatus("복사에 실패했습니다. 길게 눌러 직접 복사해 주세요.");
+  }
+}
+
+function bindDetailNavUi() {
+  $("#detail-nav-copy-search")?.addEventListener("click", () => {
+    const point = activePointId ? seaPoints.find((p) => p.id === activePointId) : null;
+    if (!point) return;
+    copyNavText(navSearchLabel(point), "티맵 검색어를 복사했습니다.");
+  });
+  $("#detail-nav-copy-coords")?.addEventListener("click", () => {
+    const point = activePointId ? seaPoints.find((p) => p.id === activePointId) : null;
+    if (!point) return;
+    const coords = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
+    copyNavText(coords, "좌표를 복사했습니다.");
+  });
 }
 
 function collapseListPanelDetails() {
@@ -200,6 +284,7 @@ function showDetailView(pointId) {
   $("#view-detail")?.removeAttribute("hidden");
   $("#detail-point-name").textContent = point.name;
   $("#detail-address").textContent = point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+  renderDetailNav(point);
   $("#app-home-divider")?.removeAttribute("hidden");
   requestAnimationFrame(() => initDetailMap(point));
   loadDetailData(point);

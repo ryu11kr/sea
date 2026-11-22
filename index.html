@@ -255,6 +255,53 @@
           <div id="weather-forecast-days" class="forecast-days weather-forecast-days"></div>
         </article>
 
+        <article class="data-card detail-nav-card" aria-labelledby="nav-heading">
+          <h3 id="nav-heading" class="data-card-title">가는 길 (차·네비)</h3>
+          <p class="detail-nav-note">
+            차 네비는 가까운 도로·주차장까지 안내합니다. 해안·갯바위 등
+            <strong>실제 낚시 포인트는 도보</strong>로 이동하는 경우가 많습니다.
+          </p>
+          <dl class="detail-nav-facts">
+            <div>
+              <dt>티맵에 검색</dt>
+              <dd id="detail-nav-search-text" class="detail-nav-value">—</dd>
+            </div>
+            <div>
+              <dt>주소</dt>
+              <dd id="detail-nav-address-text" class="detail-nav-value">—</dd>
+            </div>
+            <div>
+              <dt>좌표 (WGS84)</dt>
+              <dd id="detail-nav-coords-text" class="detail-nav-value detail-nav-mono">—</dd>
+            </div>
+          </dl>
+          <div class="detail-nav-actions">
+            <a
+              id="detail-nav-tmap"
+              class="big-btn primary detail-nav-tmap"
+              href="#"
+              rel="noopener noreferrer"
+            >
+              T map 길찾기
+            </a>
+            <a
+              id="detail-nav-kakao"
+              class="big-btn secondary"
+              href="#"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              카카오맵 (웹)
+            </a>
+            <button type="button" id="detail-nav-copy-search" class="big-btn ghost">
+              검색어 복사
+            </button>
+            <button type="button" id="detail-nav-copy-coords" class="big-btn ghost">
+              좌표 복사
+            </button>
+          </div>
+        </article>
+
         <div class="detail-actions">
           <button type="button" id="btn-edit-point" class="big-btn secondary">위치 다시 잡기</button>
           <button type="button" id="btn-delete-point" class="big-btn ghost danger-text">
