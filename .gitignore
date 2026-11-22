@@ -1,4 +1,5 @@
 .pwa-build-state.json
+cloud-sync.runtime.json
 .cursor/
 .env
 .env.*

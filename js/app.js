@@ -1,4 +1,8 @@
-const SEA_STORAGE_KEY = "sea-points-v1";
+import { SEA_STORAGE_KEY } from "./cloud-sync-data.js";
+import { initSeaPwaUpdate } from "./pwa-update.js";
+
+const TIDE_FORECAST_DAYS = 3;
+const WEATHER_FORECAST_DAYS = 7;
 
 /**
  * @typedef {{ id: string, name: string, lat: number, lon: number, address: string, updatedAt: string }} SeaPoint
@@ -28,8 +32,9 @@ function init() {
   if (!document.body.classList.contains("sea-app")) return;
   loadState();
   bindUi();
-  registerServiceWorker();
+  initSeaPwaUpdate().catch(() => {});
   bindInstall();
+  exposeSeaAppApi();
   showListView();
   renderPointList();
 }
@@ -46,6 +51,33 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+  if (!window.__seaCloudSyncApplying) {
+    window.dispatchEvent(new Event("sea-local-state-saved"));
+  }
+}
+
+function exposeSeaAppApi() {
+  window.seaAppGetLocalPoints = () => ({
+    points: [...seaPoints],
+    updatedAt:
+      seaPoints.reduce((m, p) => Math.max(m, new Date(p.updatedAt || 0).getTime()), 0) || null,
+  });
+  window.seaAppApplyPoints = (points) => {
+    seaPoints = Array.isArray(points) ? points : [];
+    localStorage.setItem(SEA_STORAGE_KEY, JSON.stringify(seaPoints));
+    renderPointList();
+    if (activePointId && !seaPoints.find((p) => p.id === activePointId)) {
+      showListView();
+    } else if (activePointId) {
+      const point = seaPoints.find((p) => p.id === activePointId);
+      if (point) {
+        $("#detail-point-name").textContent = point.name;
+        $("#detail-address").textContent =
+          point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+      }
+    }
+  };
+  window.setSeaStatus = setStatus;
 }
 
 function bindUi() {
@@ -332,112 +364,153 @@ function deleteActivePoint() {
 
 async function loadDetailData(point) {
   clearDetailPanels();
-  const date = new Date();
-  const ymd =
-    String(date.getFullYear()) +
-    String(date.getMonth() + 1).padStart(2, "0") +
-    String(date.getDate()).padStart(2, "0");
-  $("#tide-date").textContent = formatKoreanDate(date);
 
   setStatus("물때·날씨 불러오는 중…");
-  const [tide, weather] = await Promise.all([
-    fetchTide(point.lat, point.lon, ymd).catch(() => null),
-    fetchWeather(point.lat, point.lon).catch(() => null)
+  const tideDates = Array.from({ length: TIDE_FORECAST_DAYS }, (_, i) => addDays(new Date(), i));
+  const [tideResults, weather] = await Promise.all([
+    Promise.all(
+      tideDates.map((d) =>
+        fetchTide(point.lat, point.lon, formatYmd(d)).catch(() => null)
+      )
+    ),
+    fetchWeather(point.lat, point.lon).catch(() => null),
   ]);
   setStatus("");
 
-  renderTide(tide, point);
+  renderTideForecast(tideResults, tideDates, point);
   renderWeather(weather);
 }
 
 function clearDetailPanels() {
-  $("#tide-phase").textContent = "";
-  $("#tide-times").replaceChildren();
-  $("#tide-station-note").textContent = "";
-  $("#weather-current").replaceChildren();
-  $("#weather-hourly").replaceChildren();
+  $("#tide-forecast-days")?.replaceChildren();
+  $("#weather-current")?.replaceChildren();
+  $("#weather-hourly")?.replaceChildren();
+  $("#weather-forecast-days")?.replaceChildren();
 }
 
-function renderTide(data, point) {
-  const phaseEl = $("#tide-phase");
-  const listEl = $("#tide-times");
-  const noteEl = $("#tide-station-note");
-  if (!data) {
-    if (phaseEl) phaseEl.textContent = "물때 정보를 불러오지 못했습니다.";
-    return;
-  }
+function formatYmd(d) {
+  return (
+    String(d.getFullYear()) +
+    String(d.getMonth() + 1).padStart(2, "0") +
+    String(d.getDate()).padStart(2, "0")
+  );
+}
 
-  if (noteEl) {
-    const st = data.station;
-  let note = st
-      ? `기준 관측소: ${st.name} (${st.code}) · 약 ${data.distanceKm ?? "?"}km`
-      : "";
-    if (point && (data.distanceKm ?? 0) > 80) {
-      note +=
-        ` · 저장 좌표가 멀 수 있습니다 (${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}). 「위치 다시 잡기」로 송도 아암2교에 맞춰 주세요.`;
-    }
-    noteEl.textContent = note;
-  }
+function addDays(base, offset) {
+  const d = new Date(base);
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + offset);
+  return d;
+}
 
-  if (!data.configured) {
-    if (phaseEl) phaseEl.textContent = "조석 API 키 미설정";
-    if (noteEl)
-      noteEl.textContent +=
-        (noteEl.textContent ? " · " : "") +
-        (data.message || "Vercel에 KHOA_SERVICE_KEY를 설정하세요.");
-    return;
-  }
-
-  if (data.error && !(data.items || []).length) {
-    if (phaseEl) phaseEl.textContent = "물때 조회 실패 (키는 등록됨)";
-    if (noteEl) {
-      const extra = data.message || "마이페이지 일반 인증키를 Vercel에 넣고 Redeploy 해 보세요.";
-      noteEl.textContent += (noteEl.textContent ? " · " : "") + extra;
-    }
-    return;
-  }
-
-  const items = data.items || [];
+function tidePhaseLabel(data) {
+  const items = data?.items || [];
   const highs = items.filter((i) => i.type === "high");
   const lows = items.filter((i) => i.type === "low");
   const range =
     highs.length && lows.length
-      ? Math.max(...highs.map((h) => h.levelCm || 0)) -
-        Math.min(...lows.map((l) => l.levelCm || 0))
+      ? Math.max(...highs.map((h) => h.levelCm || 0)) - Math.min(...lows.map((l) => l.levelCm || 0))
       : 0;
-  if (phaseEl) {
-    phaseEl.textContent =
-      range >= 400 ? "사리 (대조)" : range >= 250 ? "조금 (중조)" : "조금 (소조)";
-  }
+  if (!items.length) return "";
+  return range >= 400 ? "사리 (대조)" : range >= 250 ? "조금 (중조)" : "조금 (소조)";
+}
 
-  if (listEl) {
-    listEl.replaceChildren(
-      ...items.slice(0, 8).map((row) => {
-        const li = document.createElement("li");
-        const label = row.type === "high" ? "만조" : row.type === "low" ? "간조" : "조석";
-        const h = row.levelCm != null ? ` · ${row.levelCm}cm` : "";
-        li.textContent = `${label} ${row.time}${h}`;
-        return li;
-      })
-    );
+function buildTideStationNote(data, point, isFirstDay) {
+  if (!isFirstDay) return "";
+  const st = data?.station;
+  let note = st ? `기준 관측소: ${st.name} (${st.code}) · 약 ${data.distanceKm ?? "?"}km` : "";
+  if (point && (data?.distanceKm ?? 0) > 80) {
+    note += ` · 저장 좌표가 멀 수 있습니다. 「위치 다시 잡기」로 맞춰 주세요.`;
   }
+  if (!data?.configured) {
+    note += (note ? " · " : "") + (data?.message || "Vercel에 KHOA_SERVICE_KEY를 설정하세요.");
+  } else if (data?.error && !(data.items || []).length) {
+    note +=
+      (note ? " · " : "") +
+      (data.message || "마이페이지 일반 인증키를 Vercel에 넣고 Redeploy 해 보세요.");
+  }
+  return note;
+}
+
+function renderTideForecast(tideResults, dates, point) {
+  const container = $("#tide-forecast-days");
+  if (!container) return;
+
+  container.replaceChildren(
+    ...tideResults.map((data, index) => {
+      const article = document.createElement("article");
+      article.className = "forecast-day";
+
+      const heading = document.createElement("h4");
+      heading.className = "forecast-day-title";
+      const dayLabel = index === 0 ? "오늘" : index === 1 ? "내일" : formatKoreanDate(dates[index]);
+      heading.textContent = `${dayLabel} · ${formatKoreanDate(dates[index])}`;
+      article.append(heading);
+
+      const phase = document.createElement("p");
+      phase.className = "tide-phase";
+
+      if (!data) {
+        phase.textContent = "물때 정보를 불러오지 못했습니다.";
+        article.append(phase);
+        return article;
+      }
+
+      if (!data.configured) {
+        phase.textContent = "조석 API 키 미설정";
+        article.append(phase);
+      } else if (data.error && !(data.items || []).length) {
+        phase.textContent = "물때 조회 실패";
+        article.append(phase);
+      } else {
+        phase.textContent = tidePhaseLabel(data) || "물때";
+        article.append(phase);
+
+        const list = document.createElement("ul");
+        list.className = "tide-times";
+        const items = data.items || [];
+        list.replaceChildren(
+          ...items.slice(0, 8).map((row) => {
+            const li = document.createElement("li");
+            const label = row.type === "high" ? "만조" : row.type === "low" ? "간조" : "조석";
+            const h = row.levelCm != null ? ` · ${row.levelCm}cm` : "";
+            li.textContent = `${label} ${row.time}${h}`;
+            return li;
+          })
+        );
+        article.append(list);
+      }
+
+      const note = buildTideStationNote(data, point, index === 0);
+      if (note) {
+        const noteEl = document.createElement("p");
+        noteEl.className = "data-note";
+        noteEl.textContent = note;
+        article.append(noteEl);
+      }
+
+      return article;
+    })
+  );
 }
 
 function renderWeather(data) {
   const cur = $("#weather-current");
   const hourly = $("#weather-hourly");
+  const weekEl = $("#weather-forecast-days");
   if (!data || !cur || !hourly) {
     cur && (cur.textContent = "날씨 정보를 불러오지 못했습니다.");
     return;
   }
 
+  const today = data.daily?.[0];
   const rows = [
     ["기온", `${data.current.temp}°C · ${data.current.label}`],
-    ["최고/최저", `${data.daily.max}°C / ${data.daily.min}°C`],
-    ["강수 확률", `${data.daily.precipProb}%`],
+    ["오늘 최고/최저", today ? `${today.max}°C / ${today.min}°C` : "—"],
+    ["강수 확률", today ? `${today.precipProb}%` : "—"],
     ["풍속", `${data.current.wind} m/s`],
     ["파고", data.marine.wave != null ? `${data.marine.wave} m` : "—"],
-    ["습도", data.current.humidity != null ? `${data.current.humidity}%` : "—"]
+    ["습도", data.current.humidity != null ? `${data.current.humidity}%` : "—"],
   ];
   cur.replaceChildren(
     ...rows.map(([k, v]) => {
@@ -452,6 +525,29 @@ function renderWeather(data) {
       const li = document.createElement("li");
       li.innerHTML = `${escapeHtml(h.time)}<br>${h.temp}°<br>${escapeHtml(h.icon)}`;
       return li;
+    })
+  );
+
+  if (!weekEl) return;
+  weekEl.replaceChildren(
+    ...(data.daily || []).map((day, index) => {
+      const card = document.createElement("article");
+      card.className = "forecast-day weather-day-card";
+      const title = document.createElement("h4");
+      title.className = "forecast-day-title";
+      title.textContent =
+        index === 0
+          ? `오늘 · ${day.label}`
+          : index === 1
+            ? `내일 · ${day.label}`
+            : day.label;
+      card.append(title);
+
+      const body = document.createElement("p");
+      body.className = "weather-day-summary";
+      body.innerHTML = `${escapeHtml(day.icon)} <strong>${day.max}°</strong> / ${day.min}° · 강수 ${day.precipProb}%`;
+      card.append(body);
+      return card;
     })
   );
 }
@@ -507,9 +603,12 @@ async function fetchWeather(lat, lon) {
     "current",
     "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
   );
-  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_probability_max");
+  url.searchParams.set(
+    "daily",
+    "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+  );
   url.searchParams.set("hourly", "temperature_2m,weather_code");
-  url.searchParams.set("forecast_days", "2");
+  url.searchParams.set("forecast_days", String(WEATHER_FORECAST_DAYS));
 
   const marineUrl = new URL("https://marine-api.open-meteo.com/v1/marine");
   marineUrl.searchParams.set("latitude", String(lat));
@@ -539,23 +638,36 @@ async function fetchWeather(lat, lon) {
       icon: weatherEmoji(row.code)
     }));
 
+  const dailyTimes = w.daily?.time || [];
+  const daily = dailyTimes.map((t, i) => {
+    const d = new Date(t);
+    const codeDay = w.daily?.weather_code?.[i] ?? 0;
+    return {
+      label: `${d.getMonth() + 1}/${d.getDate()} (${weekdayShort(d)})`,
+      max: Math.round(w.daily?.temperature_2m_max?.[i] ?? 0),
+      min: Math.round(w.daily?.temperature_2m_min?.[i] ?? 0),
+      precipProb: w.daily?.precipitation_probability_max?.[i] ?? 0,
+      icon: weatherEmoji(codeDay),
+    };
+  });
+
   return {
     current: {
       temp: Math.round(w.current?.temperature_2m ?? 0),
       label: weatherLabel(code),
       wind: Math.round((w.current?.wind_speed_10m ?? 0) * 10) / 10,
-      humidity: w.current?.relative_humidity_2m
+      humidity: w.current?.relative_humidity_2m,
     },
-    daily: {
-      max: Math.round(w.daily?.temperature_2m_max?.[0] ?? 0),
-      min: Math.round(w.daily?.temperature_2m_min?.[0] ?? 0),
-      precipProb: w.daily?.precipitation_probability_max?.[0] ?? 0
-    },
+    daily,
     marine: {
-      wave: m.current?.wave_height != null ? Math.round(m.current.wave_height * 10) / 10 : null
+      wave: m.current?.wave_height != null ? Math.round(m.current.wave_height * 10) / 10 : null,
     },
-    hourly
+    hourly,
   };
+}
+
+function weekdayShort(d) {
+  return ["일", "월", "화", "수", "목", "금", "토"][d.getDay()];
 }
 
 function formatKoreanDate(d) {
@@ -616,14 +728,4 @@ function bindInstall() {
     deferred = null;
     if (btn) btn.hidden = true;
   });
-}
-
-async function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  try {
-    const v = await fetch("./version.json", { cache: "no-store" }).then((r) => r.json());
-    await navigator.serviceWorker.register(`./sw.js?build=${v.build || 1}`);
-  } catch {
-    /* ignore */
-  }
 }

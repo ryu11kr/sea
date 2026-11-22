@@ -22,3 +22,14 @@ const payload = {
 
 writeFileSync("version.json", `${JSON.stringify(payload, null, 2)}\n`);
 console.log(`version.json → build ${build} (${sha.slice(0, 7)})`);
+
+const supabaseUrl = (process.env.SUPABASE_URL || "").trim();
+const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || "").trim();
+const syncRuntime = {
+  configured: Boolean(supabaseUrl && supabaseAnonKey),
+  supabaseUrl: supabaseUrl || null,
+  supabaseAnonKey: supabaseAnonKey || null,
+  builtAt: new Date().toISOString(),
+};
+writeFileSync("cloud-sync.runtime.json", `${JSON.stringify(syncRuntime, null, 2)}\n`);
+console.log(`cloud-sync.runtime.json → configured ${syncRuntime.configured ? "yes" : "no"}`);

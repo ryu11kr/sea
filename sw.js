@@ -9,6 +9,10 @@ const APP_SHELL = [
   "./offline.html",
   "./css/styles.css",
   "./js/app.js",
+  "./js/pwa-update.js",
+  "./js/cloud-sync.js",
+  "./js/cloud-sync-data.js",
+  "./cloud-sync.config.json",
   "./version.json",
   "./manifest.webmanifest",
   "./pwa.config.json",
@@ -42,7 +46,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (/\/(?:js\/[^/]+\.js|css\/styles\.css|version\.json|index\.html)$/.test(url.pathname)) {
+  const path = url.pathname.replace(/\/$/, "");
+  if (
+    /\/(?:js\/[^/]+\.js|css\/styles\.css|version\.json|index\.html|cloud-sync\.runtime\.json|cloud-sync\.config\.json)$/.test(
+      path
+    )
+  ) {
     event.respondWith(networkFirst(request));
     return;
   }
@@ -51,7 +60,14 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  const data = event.data || {};
+  if (data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
+  if (data.type === "PURGE_CACHES") {
+    event.waitUntil(caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))));
+  }
 });
 
 async function networkFirst(request) {
