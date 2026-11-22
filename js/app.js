@@ -386,7 +386,7 @@ function renderTide(data) {
   if (data.error && !(data.items || []).length) {
     if (phaseEl) phaseEl.textContent = "물때 조회 실패 (키는 등록됨)";
     if (noteEl) {
-      const extra = data.message || "공공데이터 **일반 인증키(디코딩)** 로 Vercel 값을 바꾼 뒤 Redeploy 해 보세요.";
+      const extra = data.message || "마이페이지 일반 인증키를 Vercel에 넣고 Redeploy 해 보세요.";
       noteEl.textContent += (noteEl.textContent ? " · " : "") + extra;
     }
     return;

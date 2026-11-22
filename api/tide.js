@@ -1,11 +1,13 @@
 import { nearestTideStation } from "./_lib/tide-stations.js";
 
-const KHOA_PRE_TAB =
-  "https://www.khoa.go.kr/api/oceangrid/tideObsPreTab/search.do";
-const KHOA_PRE_TAB_ALT =
-  "https://www.khoa.go.kr/oceangrid/grid/api/tideObsPreTab/search.do";
+/** 공공데이터포털 신규 (2025~) — 활용신청 화면 End Point 와 동일 */
+const DATA_GO_SURVEY =
+  "https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService";
 const DATA_GO_HL =
   "https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService";
+/** 구 바다누리 URL (예전 키·신규 조합은 HTML 오류) */
+const KHOA_PRE_TAB =
+  "https://www.khoa.go.kr/api/oceangrid/tideObsPreTab/search.do";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -39,28 +41,35 @@ export default async function handler(req, res) {
   const base = { station, distanceKm, date, configured: true };
 
   try {
-    const pre = await fetchKhoaPreTab(serviceKey, station.code, date);
-    if (pre.ok) {
-      const direct = pre.items;
-      const typed = direct.filter((i) => i.type === "high" || i.type === "low");
-      const items = typed.length ? typed : extractHighLowFromSeries(pre.rows);
-      res.status(200).json({ ...base, items, source: pre.source });
-      return;
-    }
-
     const hl = await fetchDataGoHighLow(serviceKey, station.code, date);
-    if (hl.ok) {
+    if (hl.ok && hl.items.length) {
       res.status(200).json({ ...base, items: hl.items, source: "data.go.kr/tideFcstHghLw" });
       return;
     }
+
+    const survey = await fetchDataGoSurvey(serviceKey, station.code, date);
+    if (survey.ok && survey.items.length) {
+      res.status(200).json({ ...base, items: survey.items, source: "data.go.kr/surveyTideLevel" });
+      return;
+    }
+
+    const legacy = await fetchKhoaPreTab(serviceKey, station.code, date);
+    if (legacy.ok && legacy.items.length) {
+      res.status(200).json({ ...base, items: legacy.items, source: "khoa/tideObsPreTab(legacy)" });
+      return;
+    }
+
+    const msg =
+      survey.apiMessage ||
+      hl.apiMessage ||
+      "공공데이터 조회 실패. 마이페이지 **일반 인증키** 를 Vercel KHOA_SERVICE_KEY에 그대로 넣고 Redeploy 하세요. (Decoding/Encoding 구분 없이 키 한 줄만 있어도 됩니다.)";
 
     res.status(200).json({
       ...base,
       items: [],
       error: "upstream_failed",
-      message:
-        "KHOA 조회에 실패했습니다. Vercel의 KHOA_SERVICE_KEY에 공공데이터 **일반 인증키(디코딩)** 를 넣었는지 확인하세요. (Encoding 키를 넣으면 %가 두 번 인코딩될 수 있습니다.)",
-      hint: pre.hint || hl.hint
+      message: msg,
+      hint: survey.hint || hl.hint || legacy.hint
     });
   } catch (err) {
     res.status(502).json({
@@ -72,6 +81,13 @@ export default async function handler(req, res) {
   }
 }
 
+function buildDataGoUrls(endpoint, serviceKey, params) {
+  const q = new URLSearchParams(params);
+  const base = `${endpoint}?${q.toString()}&serviceKey=`;
+  const keys = serviceKeyVariants(serviceKey);
+  return keys.map((key) => `${base}${key}`);
+}
+
 /** @returns {string[]} */
 function serviceKeyVariants(raw) {
   const k = raw.trim();
@@ -79,35 +95,16 @@ function serviceKeyVariants(raw) {
   const add = (v) => {
     if (v && !out.includes(v)) out.push(v);
   };
+  add(encodeURIComponent(k));
   add(k);
   if (k.includes("%")) {
     try {
-      add(decodeURIComponent(k));
+      add(encodeURIComponent(decodeURIComponent(k)));
     } catch {
       /* ignore */
     }
-  } else {
-    add(encodeURIComponent(k));
   }
   return out;
-}
-
-function buildKhoaUrl(base, serviceKey, obsCode, date) {
-  return `${base}?ServiceKey=${serviceKey}&ObsCode=${encodeURIComponent(obsCode)}&Date=${encodeURIComponent(date)}&ResultType=json`;
-}
-
-function buildDataGoHlUrl(serviceKey, obsCode, date) {
-  const q = new URLSearchParams({
-    type: "json",
-    obsCode,
-    reqDate: date,
-    numOfRows: "24",
-    pageNo: "1"
-  });
-  if (/%[0-9A-Fa-f]{2}/.test(serviceKey)) {
-    return `${DATA_GO_HL}?serviceKey=${serviceKey}&${q.toString()}`;
-  }
-  return `${DATA_GO_HL}?${q.toString()}&serviceKey=${encodeURIComponent(serviceKey)}`;
 }
 
 async function fetchText(url) {
@@ -126,47 +123,106 @@ function parseJson(text) {
   }
 }
 
-async function fetchKhoaPreTab(serviceKey, obsCode, date) {
-  const bases = [KHOA_PRE_TAB, KHOA_PRE_TAB_ALT];
-  const keys = serviceKeyVariants(serviceKey);
-  let lastHint = "";
-
-  for (const base of bases) {
-    for (const key of keys) {
-      const url = buildKhoaUrl(base, key, obsCode, date);
-      const { text, status } = await fetchText(url);
-      const data = parseJson(text);
-      if (!data) {
-        lastHint = text.slice(0, 120).replace(/\s+/g, " ");
-        continue;
-      }
-      const rows = normalizeRows(data);
-      const items = rows.map(normalizeTideRow).filter(Boolean);
-      return { ok: true, items, rows, source: "khoa/tideObsPreTab" };
-    }
-  }
-
-  return { ok: false, hint: lastHint, items: [], rows: [] };
+function dataGoHeader(data) {
+  return data?.response?.header ?? data?.header ?? {};
 }
 
-async function fetchDataGoHighLow(serviceKey, obsCode, date) {
-  const keys = serviceKeyVariants(serviceKey);
-  let lastHint = "";
+function dataGoOk(data) {
+  const code = String(dataGoHeader(data).resultCode ?? "");
+  return code === "00" || code === "0";
+}
 
-  for (const key of keys) {
-    const url = buildDataGoHlUrl(key, obsCode, date);
+function dataGoMessage(data) {
+  return dataGoHeader(data).resultMsg || "";
+}
+
+function dataGoRows(data) {
+  const body = data?.response?.body ?? data?.body ?? {};
+  const items = body?.items?.item ?? body?.item ?? [];
+  return Array.isArray(items) ? items : items ? [items] : [];
+}
+
+async function fetchDataGoSurvey(serviceKey, obsCode, date) {
+  const params = {
+    type: "json",
+    obsCode,
+    reqDate: date,
+    pageNo: "1",
+    numOfRows: "300",
+    min: "1"
+  };
+  let hint = "";
+  let apiMessage = "";
+
+  for (const url of buildDataGoUrls(DATA_GO_SURVEY, serviceKey, params)) {
     const { text } = await fetchText(url);
     const data = parseJson(text);
     if (!data) {
-      lastHint = text.slice(0, 120).replace(/\s+/g, " ");
+      hint = text.slice(0, 160).replace(/\s+/g, " ");
       continue;
     }
-    const items = parseDataGoHlItems(data);
+    if (!dataGoOk(data)) {
+      apiMessage = dataGoMessage(data);
+      continue;
+    }
+    const rows = dataGoRows(data);
+    const items = extractHighLowFromSeries(rows);
     if (items.length) {
-      return { ok: true, items };
+      return { ok: true, items, hint, apiMessage };
     }
   }
-  return { ok: false, hint: lastHint, items: [] };
+  return { ok: false, items: [], hint, apiMessage };
+}
+
+async function fetchDataGoHighLow(serviceKey, obsCode, date) {
+  const params = {
+    type: "json",
+    obsCode,
+    reqDate: date,
+    pageNo: "1",
+    numOfRows: "24"
+  };
+  let hint = "";
+  let apiMessage = "";
+
+  for (const url of buildDataGoUrls(DATA_GO_HL, serviceKey, params)) {
+    const { text } = await fetchText(url);
+    const data = parseJson(text);
+    if (!data) {
+      hint = text.slice(0, 160).replace(/\s+/g, " ");
+      continue;
+    }
+    if (!dataGoOk(data)) {
+      apiMessage = dataGoMessage(data);
+      continue;
+    }
+    const items = dataGoRows(data).map(normalizeTideRow).filter((i) => i && (i.type === "high" || i.type === "low"));
+    if (items.length) {
+      return { ok: true, items, hint, apiMessage };
+    }
+  }
+  return { ok: false, items: [], hint, apiMessage };
+}
+
+async function fetchKhoaPreTab(serviceKey, obsCode, date) {
+  let hint = "";
+  for (const key of serviceKeyVariants(serviceKey)) {
+    const url = `${KHOA_PRE_TAB}?ServiceKey=${key}&ObsCode=${encodeURIComponent(obsCode)}&Date=${encodeURIComponent(date)}&ResultType=json`;
+    const { text } = await fetchText(url);
+    const data = parseJson(text);
+    if (!data) {
+      hint = text.slice(0, 120).replace(/\s+/g, " ");
+      continue;
+    }
+    const rows = normalizeRows(data);
+    const direct = rows.map(normalizeTideRow).filter(Boolean);
+    const typed = direct.filter((i) => i.type === "high" || i.type === "low");
+    const items = typed.length ? typed : extractHighLowFromSeries(rows);
+    if (items.length) {
+      return { ok: true, items, hint };
+    }
+  }
+  return { ok: false, items: [], hint };
 }
 
 function normalizeRows(data) {
@@ -175,52 +231,39 @@ function normalizeRows(data) {
   return Array.isArray(records) ? records : records ? [records] : [];
 }
 
-function parseDataGoHlItems(data) {
-  const body = data?.response?.body ?? data?.body ?? data;
-  const items = body?.items?.item ?? body?.item ?? [];
-  const list = Array.isArray(items) ? items : items ? [items] : [];
-  return list.map(normalizeTideRow).filter(Boolean);
-}
-
 function normalizeTideRow(row) {
   if (!row || typeof row !== "object") return null;
   const time =
-    row.tph_time || row.hl_time || row.time || row.obs_time || row.TIDE_TIME || row.datetime || row.record_time;
-  let level = row.tph_level || row.tide_level || row.level || row.TIDE_LEVEL || row.height;
+    row.tph_time || row.hl_time || row.time || row.obs_time || row.obsTime || row.record_time;
+  let level = row.tph_level || row.tide_level || row.tideLevel || row.level || row.TIDE_LEVEL;
   if (level != null && Number(level) < 50 && String(level).includes(".")) {
     level = Math.round(Number(level) * 100);
   }
-  const label = row.hl_code || row.tide_type || row.type || row.HL_CODE;
+  const label = row.hl_code || row.hl_type || row.tide_type || row.type || row.HL_CODE;
   if (!time) return null;
 
-  const timeStr = formatTimeCell(time);
-  const type = inferTideType(label) !== "unknown" ? inferTideType(label) : undefined;
-
-  if (type) {
-    return {
-      time: timeStr,
-      levelCm: level != null ? Number(level) : null,
-      type
-    };
-  }
+  const type = inferTideType(label);
+  if (type === "unknown") return null;
 
   return {
-    time: timeStr,
+    time: formatObsTime(time),
     levelCm: level != null ? Number(level) : null,
-    type: "unknown"
+    type
   };
 }
 
-function formatTimeCell(raw) {
-  const s = String(raw);
-  const m = s.match(/(\d{1,2}):(\d{2})/);
+function formatObsTime(raw) {
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.length >= 12) {
+    return `${digits.slice(8, 10)}:${digits.slice(10, 12)}`;
+  }
+  const m = String(raw).match(/(\d{1,2}):(\d{2})/);
   if (m) return `${m[1].padStart(2, "0")}:${m[2]}`;
-  const digits = s.replace(/\D/g, "");
   if (digits.length >= 4) {
     const tail = digits.slice(-4);
     return `${tail.slice(0, 2)}:${tail.slice(2)}`;
   }
-  return s.slice(0, 8);
+  return String(raw).slice(0, 8);
 }
 
 function inferTideType(raw) {
@@ -230,12 +273,13 @@ function inferTideType(raw) {
   return "unknown";
 }
 
-/** @param {{ time: string, levelCm: number | null, type?: string }[]} rows */
 function extractHighLowFromSeries(rows) {
   const points = rows
     .map((row) => {
-      const time = formatTimeCell(row.record_time || row.obs_time || row.time);
-      const level = Number(row.tide_level ?? row.tide_obs_level ?? row.level);
+      const time = formatObsTime(row.obsTime || row.record_time || row.obs_time || row.time);
+      const level = Number(
+        row.tideLevel ?? row.preTideLevel ?? row.predictTideLevel ?? row.tide_level ?? row.level
+      );
       if (!time || !Number.isFinite(level)) return null;
       return { time, levelCm: level < 50 ? Math.round(level * 100) : Math.round(level) };
     })

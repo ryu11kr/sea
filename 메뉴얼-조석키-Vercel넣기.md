@@ -21,7 +21,8 @@
 3. **Settings** → **Environment Variables**
 4. 새 변수 추가:
    - **Name:** `KHOA_SERVICE_KEY`
-   - **Value:** 공공데이터 **일반 인증키 (디코딩)** 를 권장합니다. (`Encoding` 키는 `%`가 많아서 Vercel에 넣으면 이중 인코딩될 수 있습니다.)
+   - **Value:** 마이페이지에 보이는 **일반 인증키 한 줄** 전체 (신규 API는 Decoding/Encoding 구분이 없는 경우가 많습니다).
+   - End Point 가 `https://apis.data.go.kr/1192136/surveyTideLevel/...` 이면 **2025년 이후 공공데이터 형식**입니다. 예전 `khoa.go.kr/oceangrid/...` 와는 URL이 다릅니다.
    - **Environment:** Production (로컬 `vercel dev` 쓸 때는 Preview/Development도 체크)
 5. **Save**
 
