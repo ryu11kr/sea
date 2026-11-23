@@ -27,7 +27,10 @@ let detailMapMarker = null;
 let editPointId = null;
 
 let mapCenter = { lat: 37.5665, lon: 126.978 };
+/** @type {{ lat: number, lon: number } | null} */
+let mapSavedCenter = null;
 let addressDebounce = null;
+let mapSearchInFlight = false;
 let mapSearchHintBound = false;
 /** @type {"search" | "point-save"} */
 let mapSearchHintMode = "search";
@@ -134,6 +137,8 @@ function bindUi() {
   $("#btn-new-point")?.addEventListener("click", () => startNewPointOnMap());
   $("#btn-cancel-map")?.addEventListener("click", () => {
     editPointId = null;
+    mapSavedCenter = null;
+    updateMapRecenterButton();
     showListView();
   });
   $("#map-search-btn")?.addEventListener("click", () => runMapSearch());
@@ -143,6 +148,8 @@ function bindUi() {
       runMapSearch();
     }
   });
+  $("#btn-map-recenter-saved")?.addEventListener("click", () => recenterMapToSaved());
+  $("#btn-detail-map-recenter")?.addEventListener("click", () => recenterDetailMapToPoint());
   bindMapSearchHintDialog();
   $("#btn-save-point")?.addEventListener("click", () => savePointFromMap());
   $("#point-save-form")?.addEventListener("submit", (e) => {
@@ -385,6 +392,8 @@ function renderPointList() {
 
 function startNewPointOnMap() {
   editPointId = null;
+  mapSavedCenter = null;
+  updateMapRecenterButton();
   const nameInput = $("#point-name-input");
   if (nameInput) {
     nameInput.value = "";
@@ -410,13 +419,72 @@ function startMapView() {
     const p = seaPoints.find((x) => x.id === editPointId);
     if (p) {
       mapCenter = { lat: p.lat, lon: p.lon };
+      mapSavedCenter = { lat: p.lat, lon: p.lon };
       $("#point-name-input").value = p.name;
     }
+  } else {
+    mapSavedCenter = null;
   }
+  updateMapRecenterButton();
   if (map) {
     map.setView([mapCenter.lat, mapCenter.lon], 15);
     refreshCenterAddress();
   }
+}
+
+function updateMapRecenterButton() {
+  const btn = $("#btn-map-recenter-saved");
+  if (!btn) return;
+  if (mapSavedCenter && Number.isFinite(mapSavedCenter.lat)) {
+    btn.removeAttribute("hidden");
+  } else {
+    btn.setAttribute("hidden", "");
+  }
+}
+
+function recenterMapToSaved() {
+  if (!mapSavedCenter || !map) return;
+  mapCenter = { lat: mapSavedCenter.lat, lon: mapSavedCenter.lon };
+  map.setView([mapSavedCenter.lat, mapSavedCenter.lon], 15);
+  refreshCenterAddress();
+  const resultsEl = $("#map-search-results");
+  resultsEl?.setAttribute("hidden", "");
+}
+
+function recenterDetailMapToPoint() {
+  if (!activePointId) return;
+  const point = seaPoints.find((p) => p.id === activePointId);
+  if (!point || !detailMap) return;
+  detailMap.setView([point.lat, point.lon], 15);
+  detailMapMarker?.setLatLng([point.lat, point.lon]);
+  detailMapMarker?.openPopup();
+}
+
+function yieldForMapSearchUi() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+function setMapSearchBusy(busy) {
+  mapSearchInFlight = busy;
+  const status = $("#map-search-status");
+  const btn = $("#map-search-btn");
+  const input = $("#map-search-input");
+  const row = document.querySelector(".map-search-row");
+  if (status) {
+    if (busy) {
+      status.textContent = "검색 중…";
+      status.classList.add("is-busy");
+      status.removeAttribute("hidden");
+    } else {
+      status.classList.remove("is-busy");
+      status.setAttribute("hidden", "");
+    }
+  }
+  if (btn) btn.disabled = busy;
+  if (input) input.setAttribute("aria-busy", busy ? "true" : "false");
+  row?.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
 function initMapIfNeeded() {
@@ -557,12 +625,19 @@ function showMapSearchNoResultsDialog(query) {
 async function runMapSearch() {
   const q = $("#map-search-input")?.value?.trim();
   const resultsEl = $("#map-search-results");
-  if (!q || !resultsEl) return;
+  if (!q || !resultsEl || mapSearchInFlight) return;
+  setMapSearchBusy(true);
   setStatus("검색 중…");
+  resultsEl.setAttribute("hidden", "");
+  await yieldForMapSearchUi();
   try {
     const data = await fetchGeocode({ q });
     const results = data.results || [];
-    resultsEl.hidden = results.length === 0;
+    if (results.length) {
+      resultsEl.removeAttribute("hidden");
+    } else {
+      resultsEl.setAttribute("hidden", "");
+    }
     resultsEl.replaceChildren(
       ...results.map((r) => {
         const li = document.createElement("li");
@@ -572,7 +647,7 @@ async function runMapSearch() {
         btn.addEventListener("click", () => {
           mapCenter = { lat: r.lat, lon: r.lon };
           map?.setView([r.lat, r.lon], 15);
-          resultsEl.hidden = true;
+          resultsEl.setAttribute("hidden", "");
           refreshCenterAddress();
         });
         li.append(btn);
@@ -588,6 +663,8 @@ async function runMapSearch() {
   } catch {
     setStatus("");
     showMapSearchNoResultsDialog(q);
+  } finally {
+    setMapSearchBusy(false);
   }
 }
 

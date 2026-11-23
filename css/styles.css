@@ -310,6 +310,43 @@ body.sea-app .sea-wrap > .app-name {
   padding-right: 1rem;
 }
 
+.map-search-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.map-search-status {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 0.45rem;
+  min-height: 1.65rem;
+  color: var(--brand);
+  font-size: 1.08rem;
+  font-weight: 800;
+}
+
+.map-search-status[hidden] {
+  display: none !important;
+}
+
+.map-search-status.is-busy::before {
+  content: "";
+  flex-shrink: 0;
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: sea-map-spin 0.7s linear infinite;
+}
+
+@keyframes sea-map-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .map-search-results {
   list-style: none;
   margin: 0 0 0.5rem;
@@ -380,6 +417,44 @@ body.sea-app .sea-wrap > .app-name {
   font-size: 1.1rem;
   line-height: 1.5;
   color: var(--muted);
+}
+
+.map-recenter-btn {
+  width: 100%;
+  margin: 0 0 0.55rem;
+  padding: 0.65rem 0.85rem;
+  border: 2px solid var(--brand-tint-border);
+  border-radius: 0.75rem;
+  background: var(--bg-raised);
+  color: var(--brand);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.map-recenter-btn[hidden] {
+  display: none !important;
+}
+
+.detail-map-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.detail-map-head .detail-map-label {
+  margin: 0;
+}
+
+.map-recenter-btn--inline {
+  width: auto;
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.98rem;
 }
 
 .map-actions {
