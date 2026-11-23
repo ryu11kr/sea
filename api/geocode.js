@@ -1,6 +1,13 @@
 /** @typedef {{ title: string, address: string, lat: number, lon: number }} GeoResult */
 
 /**
+ * @param {string} compact
+ */
+function looksLikeRoadAddress(compact) {
+  return /[가-힣](?:대로|로|길)\d/.test(compact) || /\d+[가-힣]*(?:대로|로|길)/.test(compact);
+}
+
+/**
  * @param {string} q
  * @returns {string[]}
  */
@@ -15,15 +22,22 @@ function buildSearchVariants(q) {
   const compact = q.replace(/\s+/g, "");
   if (compact !== q) add(compact);
 
-  // 숫자로 끝나는 짧은 지명(아암2 → 아암2교) 등 낚시·해안 지명 보조 검색
-  if (/[0-9]$/.test(compact)) {
+  const roadNum = compact.match(/^(.+?(?:대로|로|길))(\d[\d-]*)$/);
+  if (roadNum) {
+    add(`${roadNum[1]} ${roadNum[2]}`);
+  }
+
+  const roadLike = looksLikeRoadAddress(compact);
+
+  // 숫자로 끝나는 짧은 지명(아암2 → 아암2교) — 도로명+번지 검색과 섞지 않음
+  if (/[0-9]$/.test(compact) && !roadLike) {
     const suffixes = ["교", "대교", "방파제", "항", "선착장", "부두", "해수욕장"];
     for (const sfx of suffixes) {
       if (!compact.endsWith(sfx)) add(compact + sfx);
     }
   }
 
-  return variants.slice(0, 7);
+  return roadLike ? variants.slice(0, 4) : variants.slice(0, 7);
 }
 
 /**
@@ -56,10 +70,11 @@ function dedupeAndRank(list, q) {
   const score = (r) => {
     const title = normKey(r.title);
     const addr = normKey(r.address);
+    if (addr === nq) return 120;
+    if (addr.includes(nq)) return 95;
     if (title === nq) return 100;
     if (title.startsWith(nq)) return 85;
     if (title.includes(nq)) return 70;
-    if (addr.includes(nq)) return 50;
     return 20;
   };
 
@@ -88,49 +103,66 @@ async function readKakaoError(res) {
  * @param {string} query
  * @returns {Promise<{ results: GeoResult[], errors: string[] }>}
  */
-async function kakaoSearch(kakaoKey, query) {
+/**
+ * @param {string} kakaoKey
+ * @param {string} query
+ * @param {{ roadFocus?: boolean }} [opts]
+ */
+async function kakaoSearch(kakaoKey, query, opts = {}) {
   const headers = { Authorization: `KakaoAK ${kakaoKey}` };
   const collected = /** @type {GeoResult[]} */ ([]);
   const errors = /** @type {string[]} */ ([]);
+  const roadFocus = Boolean(opts.roadFocus);
 
-  // analyze_type 은 주소 검색 API 전용 — keyword API 에 넣으면 400 으로 실패할 수 있음
-  const keyword = await fetch(
-    `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15`,
-    { headers }
-  );
-  if (keyword.ok) {
-    const data = await keyword.json();
-    for (const d of data.documents || []) {
-      collected.push({
-        title: d.place_name,
-        address: d.road_address_name || d.address_name || "",
-        lat: Number(d.y),
-        lon: Number(d.x),
-      });
+  const pushAddressDoc = (d) => {
+    const road = d.road_address;
+    const land = d.address;
+    const addr = road?.address_name || land?.address_name || "";
+    const lat = Number(road?.y ?? land?.y);
+    const lon = Number(road?.x ?? land?.x);
+    const title =
+      road?.address_name ||
+      land?.address_name ||
+      road?.building_name ||
+      addr ||
+      query;
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      collected.push({ title, address: addr, lat, lon });
     }
-  } else {
-    errors.push(`keyword: ${await readKakaoError(keyword)}`);
+  };
+
+  const analyzeTypes = roadFocus ? ["exact", "similar"] : ["similar"];
+  for (const analyzeType of analyzeTypes) {
+    const address = await fetch(
+      `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=${roadFocus ? 15 : 10}&analyze_type=${analyzeType}`,
+      { headers }
+    );
+    if (address.ok) {
+      const data = await address.json();
+      for (const d of data.documents || []) pushAddressDoc(d);
+    } else {
+      errors.push(`address(${analyzeType}): ${await readKakaoError(address)}`);
+    }
   }
 
-  const address = await fetch(
-    `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=10&analyze_type=similar`,
-    { headers }
-  );
-  if (address.ok) {
-    const data = await address.json();
-    for (const d of data.documents || []) {
-      const road = d.road_address;
-      const land = d.address;
-      const addr = road?.address_name || land?.address_name || "";
-      const lat = Number(road?.y ?? land?.y);
-      const lon = Number(road?.x ?? land?.x);
-      const title = road?.building_name || addr.split(" ").slice(-2).join(" ") || addr || query;
-      if (Number.isFinite(lat) && Number.isFinite(lon)) {
-        collected.push({ title, address: addr, lat, lon });
+  if (!roadFocus || collected.length < 3) {
+    const keyword = await fetch(
+      `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=${roadFocus ? 8 : 15}`,
+      { headers }
+    );
+    if (keyword.ok) {
+      const data = await keyword.json();
+      for (const d of data.documents || []) {
+        collected.push({
+          title: d.place_name,
+          address: d.road_address_name || d.address_name || "",
+          lat: Number(d.y),
+          lon: Number(d.x),
+        });
       }
+    } else {
+      errors.push(`keyword: ${await readKakaoError(keyword)}`);
     }
-  } else {
-    errors.push(`address: ${await readKakaoError(address)}`);
   }
 
   return { results: collected, errors };
@@ -188,19 +220,25 @@ async function photonSearch(q) {
  */
 async function searchPlaces(q, kakaoKey) {
   const variants = buildSearchVariants(q);
+  const compact = q.replace(/\s+/g, "");
+  const roadFocus = looksLikeRoadAddress(compact);
   let provider = kakaoKey ? "kakao" : "nominatim";
   const merged = /** @type {GeoResult[]} */ ([]);
   /** @type {string[]} */
   const kakaoErrors = [];
 
   if (kakaoKey) {
-    await Promise.all(
-      variants.map(async (variant) => {
-        const { results: part, errors } = await kakaoSearch(kakaoKey, variant);
-        merged.push(...part);
-        if (errors.length) kakaoErrors.push(...errors);
-      })
-    );
+    const orderedVariants = roadFocus
+      ? [...new Set([variants.find((v) => v.includes(" ")) || variants[0], ...variants])]
+      : variants;
+    for (const variant of orderedVariants) {
+      const { results: part, errors } = await kakaoSearch(kakaoKey, variant, {
+        roadFocus: roadFocus && variant === orderedVariants[0],
+      });
+      merged.push(...part);
+      if (errors.length) kakaoErrors.push(...errors);
+      if (roadFocus && merged.length >= 5) break;
+    }
   }
 
   if (!kakaoKey || merged.length === 0) {

@@ -995,6 +995,10 @@ function renderWeather(data) {
   );
 }
 
+function looksLikeRoadAddressClient(compact) {
+  return /[가-힣](?:대로|로|길)\d/.test(compact) || /\d+[가-힣]*(?:대로|로|길)/.test(compact);
+}
+
 function buildClientSearchVariants(q) {
   const variants = [];
   const add = (s) => {
@@ -1004,12 +1008,15 @@ function buildClientSearchVariants(q) {
   add(q);
   const compact = q.replace(/\s+/g, "");
   if (compact !== q) add(compact);
-  if (/[0-9]$/.test(compact)) {
+  const roadNum = compact.match(/^(.+?(?:대로|로|길))(\d[\d-]*)$/);
+  if (roadNum) add(`${roadNum[1]} ${roadNum[2]}`);
+  const roadLike = looksLikeRoadAddressClient(compact);
+  if (/[0-9]$/.test(compact) && !roadLike) {
     for (const sfx of ["교", "대교", "방파제", "항", "선착장", "부두"]) {
       if (!compact.endsWith(sfx)) add(compact + sfx);
     }
   }
-  return variants.slice(0, 6);
+  return roadLike ? variants.slice(0, 4) : variants.slice(0, 6);
 }
 
 function rankClientGeocodeResults(list, q) {
@@ -1030,8 +1037,9 @@ function rankClientGeocodeResults(list, q) {
     const addr = String(r.address || "")
       .replace(/\s+/g, "")
       .toLowerCase();
+    if (addr === nq) return 120;
+    if (addr.includes(nq)) return 95;
     if (title.includes(nq)) return 70;
-    if (addr.includes(nq)) return 40;
     return 10;
   };
   return uniq.sort((a, b) => score(b) - score(a)).slice(0, 12);
