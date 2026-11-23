@@ -702,7 +702,7 @@ function showMapSearchNoResultsDialog(query) {
   setMapSearchHintMode("search");
   body.textContent =
     `「${query}」에 대한 검색 결과가 없습니다.\n\n` +
-    "이름을 조금 더 넣어 보시거나, 예: 아암2 → 아암2교처럼 다리·방파제·항구 이름으로 검색해 보세요.";
+    "이름·도로명·항구 이름을 조금 더 넣어 보시거나, 띄어쓰기를 바꿔 다시 검색해 보세요.";
   if (typeof dialog.showModal === "function" && !dialog.open) {
     dialog.showModal();
   }
@@ -1046,13 +1046,7 @@ function buildClientSearchVariants(q) {
   if (compact !== q) add(compact);
   const roadNum = compact.match(/^(.+?(?:대로|로|길))(\d[\d-]*)$/);
   if (roadNum) add(`${roadNum[1]} ${roadNum[2]}`);
-  const roadLike = looksLikeRoadAddressClient(compact);
-  if (/[0-9]$/.test(compact) && !roadLike) {
-    for (const sfx of ["교", "대교", "방파제", "항", "선착장", "부두"]) {
-      if (!compact.endsWith(sfx)) add(compact + sfx);
-    }
-  }
-  return roadLike ? variants.slice(0, 4) : variants.slice(0, 6);
+  return variants;
 }
 
 function rankClientGeocodeResults(list, q) {

@@ -42,17 +42,7 @@ function buildSearchVariants(q) {
     add(`${roadNum[1]} ${roadNum[2]}`);
   }
 
-  const roadLike = looksLikeRoadAddress(compact);
-
-  // 숫자로 끝나는 짧은 지명(아암2 → 아암2교) — 도로명+번지 검색과 섞지 않음
-  if (/[0-9]$/.test(compact) && !roadLike) {
-    const suffixes = ["교", "대교", "방파제", "항", "선착장", "부두", "해수욕장"];
-    for (const sfx of suffixes) {
-      if (!compact.endsWith(sfx)) add(compact + sfx);
-    }
-  }
-
-  return roadLike ? variants.slice(0, 4) : variants.slice(0, 7);
+  return variants;
 }
 
 /**
