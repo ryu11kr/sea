@@ -565,10 +565,20 @@ async function refreshCenterAddress() {
   if (addrEl) addrEl.textContent = "주소 확인 중…";
   try {
     const data = await fetchGeocode({ lat: mapCenter.lat, lon: mapCenter.lon });
-    if (addrEl) addrEl.textContent = data.address || "";
+    if (!addrEl) return;
+    let line = String(data.address || "").trim();
+    if (data.provider === "nominatim" && line) {
+      line = `${line} (대략 위치 — 도로명은 검색으로 맞춰 주세요)`;
+    }
+    addrEl.textContent = line || `${mapCenter.lat.toFixed(5)}, ${mapCenter.lon.toFixed(5)}`;
   } catch {
     if (addrEl) addrEl.textContent = `${mapCenter.lat.toFixed(5)}, ${mapCenter.lon.toFixed(5)}`;
   }
+}
+
+function applyMapCenterAddress(text) {
+  const addrEl = $("#map-center-address");
+  if (addrEl && text) addrEl.textContent = text;
 }
 
 function setMapSearchHintMode(mode) {
@@ -612,43 +622,69 @@ function bindMapSearchHintDialog() {
   });
 }
 
-function formatMapSearchResultLabel(r) {
-  const title = String(r.title || "").trim();
+function mapSearchPrimaryLine(r) {
   const addr = String(r.address || "").trim();
-  const compactTitle = title.replace(/\s+/g, "");
-  const compactAddr = addr.replace(/\s+/g, "");
-  if (!title) return addr || "장소";
+  const title = String(r.title || "").trim();
+  if (r.kind === "road_address" || !title) return addr || title || "장소";
   if (!addr) return title;
-  if (compactAddr === compactTitle) return addr;
+  const compactAddr = addr.replace(/\s+/g, "");
+  const compactTitle = title.replace(/\s+/g, "");
   if (compactAddr.includes(compactTitle) && compactAddr.length > compactTitle.length + 2) {
     return addr;
   }
-  if (!compactAddr.includes(compactTitle)) return `${title} — ${addr}`;
-  return `${title} · ${addr}`;
+  return addr;
+}
+
+function mapSearchSecondaryLine(r) {
+  const addr = String(r.address || "").trim();
+  const title = String(r.title || "").trim();
+  if (!title || r.kind === "road_address") return "";
+  const primary = mapSearchPrimaryLine(r);
+  if (primary === title || primary.includes(title)) return "";
+  return title;
 }
 
 function selectMapSearchResult(r) {
   mapCenter = { lat: r.lat, lon: r.lon };
   map?.setView([r.lat, r.lon], 15);
   $("#map-search-results")?.setAttribute("hidden", "");
-  refreshCenterAddress();
+  const line = mapSearchPrimaryLine(r);
+  if (line) applyMapCenterAddress(line);
+  else refreshCenterAddress();
 }
 
 function renderMapSearchResults(results) {
   const resultsEl = $("#map-search-results");
   if (!resultsEl) return;
-  const usedLabels = new Set();
+  const usedKeys = new Set();
+  const ordered = [...results].sort((a, b) => {
+    const ar = a.kind === "road_address" ? 1 : 0;
+    const br = b.kind === "road_address" ? 1 : 0;
+    return br - ar;
+  });
   resultsEl.replaceChildren(
-    ...results.map((r) => {
-      let label = formatMapSearchResultLabel(r);
-      if (usedLabels.has(label)) {
-        label = `${label} (${Number(r.lat).toFixed(4)}, ${Number(r.lon).toFixed(4)})`;
+    ...ordered.map((r) => {
+      const primary = mapSearchPrimaryLine(r);
+      const secondary = mapSearchSecondaryLine(r);
+      let key = `${primary}|${secondary}`;
+      if (usedKeys.has(key)) {
+        key = `${key}|${r.lat.toFixed(5)}`;
       }
-      usedLabels.add(label);
+      usedKeys.add(key);
       const li = document.createElement("li");
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.textContent = label;
+      btn.className = "map-search-hit";
+      const main = document.createElement("span");
+      main.className = "map-search-hit-main";
+      main.textContent = primary;
+      btn.append(main);
+      if (secondary) {
+        const sub = document.createElement("span");
+        sub.className = "map-search-hit-sub";
+        sub.textContent = secondary;
+        btn.append(sub);
+      }
       btn.addEventListener("click", () => selectMapSearchResult(r));
       li.append(btn);
       return li;

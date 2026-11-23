@@ -383,7 +383,8 @@ body.sea-hide-app-title .sea-wrap > #app-home-divider {
   background: var(--bg-raised);
 }
 
-.map-search-results li button {
+.map-search-results li button,
+.map-search-results li .map-search-hit {
   width: 100%;
   min-height: 3rem;
   text-align: left;
@@ -395,6 +396,26 @@ body.sea-hide-app-title .sea-wrap > #app-home-divider {
   font-weight: 600;
   cursor: pointer;
   border-bottom: 1px solid var(--line);
+}
+
+.map-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: flex-start;
+}
+
+.map-search-hit-main {
+  font-weight: 800;
+  line-height: 1.35;
+  word-break: keep-all;
+}
+
+.map-search-hit-sub {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.3;
 }
 
 .map-search-results li:last-child button {

@@ -1,4 +1,19 @@
-/** @typedef {{ title: string, address: string, lat: number, lon: number }} GeoResult */
+/** @typedef {{ title: string, address: string, lat: number, lon: number, kind?: string }} GeoResult */
+
+/**
+ * @param {Record<string, unknown> | null | undefined} road
+ * @param {Record<string, unknown> | null | undefined} land
+ */
+function kakaoFormatAddressLine(road, land) {
+  const roadLine = String(road?.address_name || "").trim();
+  const landLine = String(land?.address_name || "").trim();
+  let line = roadLine || landLine;
+  const building = String(road?.building_name || "").trim();
+  if (building && line && !line.includes(building)) {
+    line = `${line} (${building})`;
+  }
+  return line;
+}
 
 /**
  * @param {string} compact
@@ -70,12 +85,14 @@ function dedupeAndRank(list, q) {
   const score = (r) => {
     const title = normKey(r.title);
     const addr = normKey(r.address);
-    if (addr === nq) return 120;
-    if (addr.includes(nq)) return 95;
-    if (title === nq) return 100;
-    if (title.startsWith(nq)) return 85;
-    if (title.includes(nq)) return 70;
-    return 20;
+    let s = 20;
+    if (r.kind === "road_address") s += 35;
+    if (addr === nq) s += 120;
+    else if (addr.includes(nq)) s += 95;
+    if (title === nq) s += 100;
+    else if (title.startsWith(nq)) s += 85;
+    else if (title.includes(nq)) s += 70;
+    return s;
   };
 
   return out.sort((a, b) => score(b) - score(a)).slice(0, 12);
@@ -117,17 +134,19 @@ async function kakaoSearch(kakaoKey, query, opts = {}) {
   const pushAddressDoc = (d) => {
     const road = d.road_address;
     const land = d.address;
-    const addr = road?.address_name || land?.address_name || "";
+    const addr = kakaoFormatAddressLine(road, land);
     const lat = Number(road?.y ?? land?.y);
     const lon = Number(road?.x ?? land?.x);
-    const title =
-      road?.address_name ||
-      land?.address_name ||
-      road?.building_name ||
-      addr ||
-      query;
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      collected.push({ title, address: addr, lat, lon });
+    const building = String(road?.building_name || "").trim();
+    const title = building || addr || query;
+    if (Number.isFinite(lat) && Number.isFinite(lon) && addr) {
+      collected.push({
+        title,
+        address: addr,
+        lat,
+        lon,
+        kind: "road_address",
+      });
     }
   };
 
@@ -145,7 +164,7 @@ async function kakaoSearch(kakaoKey, query, opts = {}) {
     }
   }
 
-  if (!roadFocus || collected.length < 3) {
+  if (!roadFocus || collected.length === 0) {
     const keyword = await fetch(
       `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=${roadFocus ? 8 : 15}`,
       { headers }
@@ -153,11 +172,13 @@ async function kakaoSearch(kakaoKey, query, opts = {}) {
     if (keyword.ok) {
       const data = await keyword.json();
       for (const d of data.documents || []) {
+        const addr = String(d.road_address_name || d.address_name || "").trim();
         collected.push({
           title: d.place_name,
-          address: d.road_address_name || d.address_name || "",
+          address: addr || d.place_name,
           lat: Number(d.y),
           lon: Number(d.x),
+          kind: "place",
         });
       }
     } else {
@@ -313,27 +334,33 @@ export default async function handler(req, res) {
     if (lat != null && lon != null) {
       if (kakaoKey) {
         const r = await fetch(
-          `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lon}&y=${lat}`,
+          `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lon}&y=${lat}&input_coord=WGS84`,
           { headers: { Authorization: `KakaoAK ${kakaoKey}` } }
         );
         const data = await r.json();
         const doc = data.documents?.[0];
         const addr =
-          doc?.address?.address_name ||
-          doc?.road_address?.address_name ||
+          kakaoFormatAddressLine(doc?.road_address, doc?.address) ||
           `${Number(lat).toFixed(5)}, ${Number(lon).toFixed(5)}`;
-        res.status(200).json({ provider: "kakao", address: addr });
+        res.status(200).json({
+          provider: "kakao",
+          address: addr,
+          roadAddress: kakaoFormatAddressLine(doc?.road_address, null) || null,
+          landAddress: String(doc?.address?.address_name || "").trim() || null,
+        });
         return;
       }
 
       const rev = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=14`,
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=18&accept-language=ko`,
         { headers: { "User-Agent": "SeaTidePWA/1.0 (sea.uxpwa.com)" } }
       );
       const data = await rev.json();
+      const addr = data.display_name || `${lat}, ${lon}`;
       res.status(200).json({
         provider: "nominatim",
-        address: data.display_name || `${lat}, ${lon}`,
+        address: addr,
+        hint: "도로명주소는 카카오 연동(서버 KAKAO_REST_KEY)이 있을 때 정확합니다.",
       });
       return;
     }
