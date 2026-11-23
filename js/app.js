@@ -612,6 +612,50 @@ function bindMapSearchHintDialog() {
   });
 }
 
+function formatMapSearchResultLabel(r) {
+  const title = String(r.title || "").trim();
+  const addr = String(r.address || "").trim();
+  const compactTitle = title.replace(/\s+/g, "");
+  const compactAddr = addr.replace(/\s+/g, "");
+  if (!title) return addr || "장소";
+  if (!addr) return title;
+  if (compactAddr === compactTitle) return addr;
+  if (compactAddr.includes(compactTitle) && compactAddr.length > compactTitle.length + 2) {
+    return addr;
+  }
+  if (!compactAddr.includes(compactTitle)) return `${title} — ${addr}`;
+  return `${title} · ${addr}`;
+}
+
+function selectMapSearchResult(r) {
+  mapCenter = { lat: r.lat, lon: r.lon };
+  map?.setView([r.lat, r.lon], 15);
+  $("#map-search-results")?.setAttribute("hidden", "");
+  refreshCenterAddress();
+}
+
+function renderMapSearchResults(results) {
+  const resultsEl = $("#map-search-results");
+  if (!resultsEl) return;
+  const usedLabels = new Set();
+  resultsEl.replaceChildren(
+    ...results.map((r) => {
+      let label = formatMapSearchResultLabel(r);
+      if (usedLabels.has(label)) {
+        label = `${label} (${Number(r.lat).toFixed(4)}, ${Number(r.lon).toFixed(4)})`;
+      }
+      usedLabels.add(label);
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.addEventListener("click", () => selectMapSearchResult(r));
+      li.append(btn);
+      return li;
+    })
+  );
+}
+
 function showMapSearchNoResultsDialog(query) {
   const dialog = $("#map-search-hint-dialog");
   const body = $("#map-search-hint-body");
@@ -639,27 +683,12 @@ async function runMapSearch() {
   try {
     const data = await fetchGeocode({ q });
     const results = data.results || [];
+    renderMapSearchResults(results);
     if (results.length) {
       resultsEl.removeAttribute("hidden");
     } else {
       resultsEl.setAttribute("hidden", "");
     }
-    resultsEl.replaceChildren(
-      ...results.map((r) => {
-        const li = document.createElement("li");
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = `${r.title} — ${r.address}`;
-        btn.addEventListener("click", () => {
-          mapCenter = { lat: r.lat, lon: r.lon };
-          map?.setView([r.lat, r.lon], 15);
-          resultsEl.setAttribute("hidden", "");
-          refreshCenterAddress();
-        });
-        li.append(btn);
-        return li;
-      })
-    );
     if (results.length) {
       setStatus("");
     } else {
@@ -1008,25 +1037,29 @@ function rankClientGeocodeResults(list, q) {
   return uniq.sort((a, b) => score(b) - score(a)).slice(0, 12);
 }
 
-async function fetchGeocode(params) {
+async function fetchGeocode(params, options = {}) {
   const qs = new URLSearchParams(params);
+  const init = options.signal ? { signal: options.signal } : {};
   try {
-    const res = await fetch(`/api/geocode?${qs}`);
+    const res = await fetch(`/api/geocode?${qs}`, init);
     if (res.ok) return res.json();
-  } catch {
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
     /* static/local — no serverless */
   }
-  return fallbackGeocode(params);
+  return fallbackGeocode(params, options);
 }
 
-async function fallbackGeocode(params) {
+async function fallbackGeocode(params, options = {}) {
   const headers = { "User-Agent": "SeaTidePWA/1.0 (sea.uxpwa.com)" };
+  const fetchInit = options.signal ? { headers, signal: options.signal } : { headers };
   if (params.q) {
-    const variants = buildClientSearchVariants(params.q);
+    const isSuggest = params.suggest === "1" || params.suggest === 1;
+    const variants = isSuggest ? [params.q] : buildClientSearchVariants(params.q);
     const merged = [];
     for (const variant of variants) {
       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(variant)}&format=json&limit=8&countrycodes=kr`;
-      const list = await fetch(url, { headers }).then((r) => r.json());
+      const list = await fetch(url, fetchInit).then((r) => r.json());
       for (const d of list || []) {
         merged.push({
           title: d.display_name.split(",")[0],
@@ -1035,11 +1068,11 @@ async function fallbackGeocode(params) {
           lon: Number(d.lon),
         });
       }
-      if (merged.length >= 8) break;
+      if (merged.length >= 8 || isSuggest) break;
     }
     if (merged.length === 0) {
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(params.q)}&lang=ko&limit=8&bbox=124.5,33,131.5,39.5`;
-      const photon = await fetch(photonUrl).then((r) => r.json());
+      const photon = await fetch(photonUrl, fetchInit).then((r) => r.json());
       for (const f of photon.features || []) {
         const p = f.properties || {};
         const coords = f.geometry?.coordinates || [];
@@ -1053,7 +1086,8 @@ async function fallbackGeocode(params) {
         });
       }
     }
-    return { results: rankClientGeocodeResults(merged, params.q) };
+    const results = rankClientGeocodeResults(merged, params.q);
+    return { results: isSuggest ? results.slice(0, 10) : results };
   }
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${params.lat}&lon=${params.lon}&format=json&zoom=14`;
   const data = await fetch(url, { headers }).then((r) => r.json());

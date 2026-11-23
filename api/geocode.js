@@ -234,7 +234,32 @@ export default async function handler(req, res) {
 
   const kakaoKey = (process.env.KAKAO_REST_KEY || "").trim();
 
+  const suggest =
+    req.query.suggest === "1" ||
+    req.query.suggest === "true" ||
+    req.query.suggest === "yes";
+
   try {
+    if (q && suggest) {
+      let provider = kakaoKey ? "kakao" : "nominatim";
+      let results = /** @type {GeoResult[]} */ ([]);
+
+      if (kakaoKey) {
+        const { results: part } = await kakaoSearch(kakaoKey, q);
+        results = dedupeAndRank(part, q).slice(0, 10);
+      } else {
+        const part = await nominatimSearch(q);
+        results = dedupeAndRank(part, q).slice(0, 10);
+        if (results.length === 0) {
+          results = dedupeAndRank(await photonSearch(q), q).slice(0, 10);
+          if (results.length) provider = "photon";
+        }
+      }
+
+      res.status(200).json({ provider, results, suggest: true });
+      return;
+    }
+
     if (q) {
       const { provider, results, kakaoErrors } = await searchPlaces(q, kakaoKey);
       const body = { provider, results };
