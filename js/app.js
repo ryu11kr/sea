@@ -314,9 +314,14 @@ function collapseListPanelDetails() {
   });
 }
 
+function setAppTitleVisible(visible) {
+  document.body.classList.toggle("sea-hide-app-title", !visible);
+}
+
 function showListView() {
   destroyAllMaps();
   activePointId = null;
+  setAppTitleVisible(true);
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.setAttribute("hidden", "");
@@ -327,6 +332,7 @@ function showListView() {
 
 function showMapView() {
   destroyDetailMap();
+  setAppTitleVisible(false);
   $("#view-list")?.setAttribute("hidden", "");
   $("#view-map")?.removeAttribute("hidden");
   $("#view-detail")?.setAttribute("hidden", "");
@@ -336,6 +342,7 @@ function showMapView() {
 
 function showDetailView(pointId) {
   activePointId = pointId;
+  setAppTitleVisible(false);
   destroyMap();
   const point = seaPoints.find((p) => p.id === pointId);
   if (!point) {
@@ -349,7 +356,6 @@ function showDetailView(pointId) {
   $("#detail-point-name").textContent = point.name;
   $("#detail-address").textContent = point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
   renderDetailNav(point);
-  $("#app-home-divider")?.removeAttribute("hidden");
   requestAnimationFrame(() => initDetailMap(point));
   loadDetailData(point);
 }
@@ -399,18 +405,19 @@ function startNewPointOnMap() {
     nameInput.value = "";
     nameInput.placeholder = POINT_NAME_PLACEHOLDER;
   }
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        mapCenter = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-        startMapView();
-      },
-      () => startMapView(),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600_000 }
-    );
-  } else {
-    startMapView();
-  }
+  startMapView();
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      mapCenter = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      if (map) {
+        map.setView([mapCenter.lat, mapCenter.lon], 15);
+        refreshCenterAddress();
+      }
+    },
+    () => {},
+    { enableHighAccuracy: false, timeout: 10_000, maximumAge: 600_000 }
+  );
 }
 
 function startMapView() {
@@ -468,18 +475,17 @@ function yieldForMapSearchUi() {
 
 function setMapSearchBusy(busy) {
   mapSearchInFlight = busy;
-  const status = $("#map-search-status");
+  const overlay = $("#map-search-busy");
+  const overlayText = $("#map-search-busy-text");
   const btn = $("#map-search-btn");
   const input = $("#map-search-input");
   const row = document.querySelector(".map-search-row");
-  if (status) {
+  if (overlay) {
     if (busy) {
-      status.textContent = "검색 중…";
-      status.classList.add("is-busy");
-      status.removeAttribute("hidden");
+      if (overlayText) overlayText.textContent = "주소 검색 중…";
+      overlay.removeAttribute("hidden");
     } else {
-      status.classList.remove("is-busy");
-      status.setAttribute("hidden", "");
+      overlay.setAttribute("hidden", "");
     }
   }
   if (btn) btn.disabled = busy;
@@ -1239,6 +1245,7 @@ function renderAppSharePage() {
 
 function showAppShareView() {
   collapseListPanelDetails();
+  setAppTitleVisible(true);
   $("#view-list")?.setAttribute("hidden", "");
   $("#view-map")?.setAttribute("hidden", "");
   $("#view-detail")?.setAttribute("hidden", "");

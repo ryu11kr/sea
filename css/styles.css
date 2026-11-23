@@ -98,6 +98,11 @@ body.sea-app .sea-wrap > .app-name {
   }
 }
 
+body.sea-hide-app-title .sea-wrap > #app-title,
+body.sea-hide-app-title .sea-wrap > #app-home-divider {
+  display: none;
+}
+
 .app-guide[hidden] {
   display: none;
 }
@@ -315,30 +320,50 @@ body.sea-app .sea-wrap > .app-name {
   cursor: wait;
 }
 
-.map-search-status {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 0 0 0.45rem;
-  min-height: 1.65rem;
-  color: var(--brand);
-  font-size: 1.08rem;
-  font-weight: 800;
+.map-search-busy {
+  position: fixed;
+  inset: 0;
+  z-index: 1900;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(0, 0, 0, 0.42);
 }
 
-.map-search-status[hidden] {
+.map-search-busy[hidden] {
   display: none !important;
 }
 
-.map-search-status.is-busy::before {
-  content: "";
-  flex-shrink: 0;
-  width: 1.05rem;
-  height: 1.05rem;
-  border: 2px solid var(--line);
+.map-search-busy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  max-width: 19rem;
+  padding: 1.35rem 1.5rem;
+  text-align: center;
+  background: #fff;
+  border: 3px solid #000;
+  border-radius: 1.25rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.map-search-busy-spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  border: 3px solid var(--line);
   border-top-color: var(--brand);
   border-radius: 50%;
   animation: sea-map-spin 0.7s linear infinite;
+}
+
+.map-search-busy-text {
+  margin: 0;
+  font-size: clamp(1.2rem, 4.5vw, 1.35rem);
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 @keyframes sea-map-spin {

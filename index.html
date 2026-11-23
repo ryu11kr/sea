@@ -200,9 +200,6 @@
             검색
           </button>
         </div>
-        <p id="map-search-status" class="map-search-status" hidden role="status" aria-live="polite">
-          검색 중…
-        </p>
         <ul id="map-search-results" class="map-search-results" hidden></ul>
 
         <div id="map-container" class="map-container" aria-label="지도"></div>
@@ -339,6 +336,13 @@
 
     <div id="sea-share-busy" class="sea-share-busy" hidden aria-live="polite" aria-busy="true">
       <p id="sea-share-busy-text" class="sea-share-busy-text"></p>
+    </div>
+
+    <div id="map-search-busy" class="map-search-busy" hidden aria-live="polite" aria-busy="true">
+      <div class="map-search-busy-card" role="status">
+        <p class="map-search-busy-spinner" aria-hidden="true"></p>
+        <p id="map-search-busy-text" class="map-search-busy-text">주소 검색 중…</p>
+      </div>
     </div>
 
     <dialog
