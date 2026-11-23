@@ -29,6 +29,9 @@ let editPointId = null;
 let mapCenter = { lat: 37.5665, lon: 126.978 };
 let addressDebounce = null;
 let mapSearchHintBound = false;
+/** @type {"search" | "point-save"} */
+let mapSearchHintMode = "search";
+const POINT_NAME_PLACEHOLDER = "포인트이름등록";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -382,7 +385,11 @@ function renderPointList() {
 
 function startNewPointOnMap() {
   editPointId = null;
-  $("#point-name-input").value = "";
+  const nameInput = $("#point-name-input");
+  if (nameInput) {
+    nameInput.value = "";
+    nameInput.placeholder = POINT_NAME_PLACEHOLDER;
+  }
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -485,14 +492,35 @@ async function refreshCenterAddress() {
   try {
     const data = await fetchGeocode({ lat: mapCenter.lat, lon: mapCenter.lon });
     if (addrEl) addrEl.textContent = data.address || "";
-    const nameInput = $("#point-name-input");
-    if (nameInput && !nameInput.value.trim() && data.address) {
-      const short = data.address.split(" ").slice(-2).join(" ");
-      nameInput.placeholder = short || "포인트 이름";
-    }
   } catch {
     if (addrEl) addrEl.textContent = `${mapCenter.lat.toFixed(5)}, ${mapCenter.lon.toFixed(5)}`;
   }
+}
+
+function setMapSearchHintMode(mode) {
+  mapSearchHintMode = mode;
+  const ok = $("#map-search-hint-ok");
+  const title = $("#map-search-hint-title");
+  if (mode === "point-save") {
+    if (title) title.textContent = "포인트 저장";
+    if (ok) ok.textContent = "확인";
+    return;
+  }
+  if (title) title.textContent = "검색 결과 없음";
+  if (ok) ok.textContent = "다시 검색";
+}
+
+function focusAfterMapSearchHintClose() {
+  if (mapSearchHintMode === "point-save") {
+    const input = $("#point-name-input");
+    input?.focus();
+    input?.select();
+    setMapSearchHintMode("search");
+    return;
+  }
+  const input = $("#map-search-input");
+  input?.focus();
+  input?.select();
 }
 
 function bindMapSearchHintDialog() {
@@ -501,14 +529,12 @@ function bindMapSearchHintDialog() {
   const dialog = $("#map-search-hint-dialog");
   $("#map-search-hint-ok")?.addEventListener("click", () => {
     dialog?.close();
-    const input = $("#map-search-input");
-    input?.focus();
-    input?.select();
+    focusAfterMapSearchHintClose();
   });
   dialog?.addEventListener("cancel", (e) => {
     e.preventDefault();
     dialog.close();
-    $("#map-search-input")?.focus();
+    focusAfterMapSearchHintClose();
   });
 }
 
@@ -519,6 +545,7 @@ function showMapSearchNoResultsDialog(query) {
     setStatus("검색 결과가 없습니다. 다른 이름으로 다시 검색해 주세요.");
     return;
   }
+  setMapSearchHintMode("search");
   body.textContent =
     `「${query}」에 대한 검색 결과가 없습니다.\n\n` +
     "이름을 조금 더 넣어 보시거나, 예: 아암2 → 아암2교처럼 다리·방파제·항구 이름으로 검색해 보세요.";
@@ -567,12 +594,11 @@ async function runMapSearch() {
 function showPointSaveHint(message) {
   const dialog = $("#map-search-hint-dialog");
   const body = $("#map-search-hint-body");
-  const title = $("#map-search-hint-title");
   if (!dialog || !body) {
     setStatus(message);
     return;
   }
-  if (title) title.textContent = "포인트 저장";
+  setMapSearchHintMode("point-save");
   body.textContent = message;
   if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
 }
