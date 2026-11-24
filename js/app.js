@@ -5,6 +5,12 @@ import {
   touchLocalPointsMutatedAt,
 } from "./cloud-sync-data.js";
 import { initSeaPwaUpdate } from "./pwa-update.js";
+import {
+  parseSeaRoute,
+  seaRouteHash,
+  buildSharedSpotUrl,
+  spotPointFromParams,
+} from "./sea-routes.js";
 
 const TIDE_FORECAST_DAYS = 3;
 const WEATHER_FORECAST_DAYS = 7;
@@ -25,6 +31,9 @@ let detailMap = null;
 let detailMapMarker = null;
 /** @type {string | null} */
 let editPointId = null;
+/** @type {SeaPoint | null} */
+let ephemeralDetailPoint = null;
+let seaRouteSync = true;
 
 let mapCenter = { lat: 37.5665, lon: 126.978 };
 /** @type {{ lat: number, lon: number } | null} */
@@ -49,8 +58,17 @@ function init() {
   bindInstall();
   bindAppShareUi();
   exposeSeaAppApi();
-  showListView();
-  renderPointList();
+  bindSeaHistory();
+  const initialRoute = parseSeaRoute();
+  seaRouteSync = false;
+  if (initialRoute.view === "list" && !location.hash) {
+    showListView({ skipRoute: true });
+    commitSeaRoute({ view: "list" }, { replace: true });
+  } else {
+    navigateSeaRoute(initialRoute, { skipRoute: true });
+    commitSeaRoute(initialRoute, { replace: true });
+  }
+  seaRouteSync = true;
 }
 
 function loadState() {
@@ -139,7 +157,7 @@ function bindUi() {
     editPointId = null;
     mapSavedCenter = null;
     updateMapRecenterButton();
-    showListView();
+    goBackOrList();
   });
   $("#map-search-btn")?.addEventListener("click", () => runMapSearch());
   $("#map-search-input")?.addEventListener("keydown", (e) => {
@@ -162,7 +180,10 @@ function bindUi() {
       savePointFromMap();
     }
   });
-  $("#btn-back-list")?.addEventListener("click", showListView);
+  $("#btn-back-list")?.addEventListener("click", goBackOrList);
+  $("#btn-share-point")?.addEventListener("click", () => {
+    shareActivePointLink().catch(() => {});
+  });
   $("#btn-delete-point")?.addEventListener("click", deleteActivePoint);
   $("#btn-edit-point")?.addEventListener("click", () => {
     if (!activePointId) return;
@@ -291,18 +312,18 @@ async function copyNavText(text, okMsg) {
 
 function bindDetailNavUi() {
   $("#detail-nav-copy-search")?.addEventListener("click", () => {
-    const point = activePointId ? seaPoints.find((p) => p.id === activePointId) : null;
+    const point = getDetailPoint();
     if (!point) return;
     copyNavText(navSearchLabel(point), "티맵 검색어를 복사했습니다.");
   });
   $("#detail-nav-copy-coords")?.addEventListener("click", () => {
-    const point = activePointId ? seaPoints.find((p) => p.id === activePointId) : null;
+    const point = getDetailPoint();
     if (!point) return;
     const coords = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
     copyNavText(coords, "좌표를 복사했습니다.");
   });
   $("#detail-nav-tmap")?.addEventListener("click", () => {
-    const point = activePointId ? seaPoints.find((p) => p.id === activePointId) : null;
+    const point = getDetailPoint();
     if (!point) return;
     openTmapNavigation(point);
   });
@@ -318,9 +339,113 @@ function setAppTitleVisible(visible) {
   document.body.classList.toggle("sea-hide-app-title", !visible);
 }
 
-function showListView() {
+/** @param {import("./sea-routes.js").SeaRoute} route */
+function commitSeaRoute(route, { replace = false } = {}) {
+  if (!seaRouteSync) return;
+  const hash = seaRouteHash(route);
+  const url = `${location.pathname}${location.search}${hash}`;
+  if (!replace && location.hash === hash) return;
+  if (replace) {
+    history.replaceState({ seaRoute: route }, "", url);
+  } else {
+    history.pushState({ seaRoute: route }, "", url);
+  }
+}
+
+function bindSeaHistory() {
+  window.addEventListener("popstate", () => {
+    seaRouteSync = false;
+    navigateSeaRoute(parseSeaRoute(), { skipRoute: true });
+    seaRouteSync = true;
+  });
+}
+
+function goBackOrList() {
+  if (location.hash && location.hash !== "#/") {
+    history.back();
+    return;
+  }
+  editPointId = null;
+  showListView({ replaceRoute: true });
+}
+
+/** @param {import("./sea-routes.js").SeaRoute} route */
+function navigateSeaRoute(route, { skipRoute = false } = {}) {
+  switch (route.view) {
+    case "list":
+      showListView({ skipRoute, replaceRoute: true });
+      break;
+  case "point": {
+      const p = seaPoints.find((x) => x.id === route.id);
+      if (p) showDetailView(route.id, { skipRoute });
+      else {
+        setStatus("저장된 포인트를 찾을 수 없습니다.");
+        showListView({ skipRoute, replaceRoute: true });
+      }
+      break;
+    }
+    case "spot": {
+      const p = spotPointFromParams(route.params);
+      if (p) showDetailView(p, { skipRoute });
+      else {
+        setStatus("공유 링크가 올바르지 않습니다.");
+        showListView({ skipRoute, replaceRoute: true });
+      }
+      break;
+    }
+    case "map-new":
+      editPointId = null;
+      mapSavedCenter = null;
+      updateMapRecenterButton();
+      startNewPointOnMap({ skipRoute, skipGeo: false });
+      break;
+    case "map-edit":
+      editPointId = route.id;
+      startMapView({ skipRoute });
+      break;
+    case "app-share":
+      showAppShareView({ skipRoute });
+      break;
+    default:
+      showListView({ skipRoute, replaceRoute: true });
+  }
+}
+
+function getDetailPoint() {
+  if (ephemeralDetailPoint) return ephemeralDetailPoint;
+  if (!activePointId) return null;
+  return seaPoints.find((p) => p.id === activePointId) || null;
+}
+
+function syncDetailActionButtons(point) {
+  const ephemeral = Boolean(point?._ephemeral);
+  $("#btn-delete-point")?.toggleAttribute("hidden", ephemeral);
+  $("#btn-edit-point")?.toggleAttribute("hidden", ephemeral);
+  const shareBtn = $("#btn-share-point");
+  if (shareBtn) shareBtn.hidden = !point || ephemeral;
+}
+
+async function shareActivePointLink() {
+  const point = getDetailPoint();
+  if (!point || point._ephemeral) return;
+  const url = buildSharedSpotUrl(point, getAppPublicShareUrl());
+  const title = `물때첩 — ${point.name}`;
+  const text = `${point.name} 물때·날씨 보기`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+  }
+  await copyNavText(url, "포인트 링크를 복사했습니다. 카톡 등에 붙여 넣으세요.");
+}
+
+function showListView(opts = {}) {
   destroyAllMaps();
   activePointId = null;
+  ephemeralDetailPoint = null;
   setAppTitleVisible(true);
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
@@ -328,9 +453,12 @@ function showListView() {
   $("#view-app-share")?.setAttribute("hidden", "");
   $("#app-home-divider")?.setAttribute("hidden", "");
   renderPointList();
+  if (!opts.skipRoute) {
+    commitSeaRoute({ view: "list" }, { replace: Boolean(opts.replaceRoute) });
+  }
 }
 
-function showMapView() {
+function showMapView(opts = {}) {
   destroyDetailMap();
   setAppTitleVisible(false);
   $("#view-list")?.setAttribute("hidden", "");
@@ -338,15 +466,35 @@ function showMapView() {
   $("#view-detail")?.setAttribute("hidden", "");
   $("#view-app-share")?.setAttribute("hidden", "");
   requestAnimationFrame(() => initMapIfNeeded());
+  if (!opts.skipRoute) {
+    if (editPointId) commitSeaRoute({ view: "map-edit", id: editPointId });
+    else commitSeaRoute({ view: "map-new" });
+  }
 }
 
-function showDetailView(pointId) {
-  activePointId = pointId;
+/**
+ * @param {string | SeaPoint} pointId
+ */
+function showDetailView(pointId, opts = {}) {
+  ephemeralDetailPoint = null;
+  /** @type {SeaPoint | undefined} */
+  let point;
+  if (typeof pointId === "object" && pointId) {
+    point = pointId;
+    if (point._ephemeral) {
+      ephemeralDetailPoint = point;
+      activePointId = null;
+    } else {
+      activePointId = point.id;
+    }
+  } else {
+    activePointId = pointId;
+    point = seaPoints.find((p) => p.id === pointId);
+  }
   setAppTitleVisible(false);
   destroyMap();
-  const point = seaPoints.find((p) => p.id === pointId);
   if (!point) {
-    showListView();
+    showListView({ replaceRoute: true });
     return;
   }
   $("#view-list")?.setAttribute("hidden", "");
@@ -355,9 +503,22 @@ function showDetailView(pointId) {
   $("#view-detail")?.removeAttribute("hidden");
   $("#detail-point-name").textContent = point.name;
   $("#detail-address").textContent = point.address || `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+  syncDetailActionButtons(point);
   renderDetailNav(point);
   requestAnimationFrame(() => initDetailMap(point));
   loadDetailData(point);
+  if (!opts.skipRoute) {
+    if (ephemeralDetailPoint) {
+      const q = new URLSearchParams();
+      q.set("lat", String(Number(point.lat).toFixed(5)));
+      q.set("lon", String(Number(point.lon).toFixed(5)));
+      q.set("n", point.name);
+      if (point.address) q.set("a", point.address);
+      commitSeaRoute({ view: "spot", params: q });
+    } else if (activePointId) {
+      commitSeaRoute({ view: "point", id: activePointId });
+    }
+  }
 }
 
 function syncHomeIntro() {
@@ -396,7 +557,7 @@ function renderPointList() {
   );
 }
 
-function startNewPointOnMap() {
+function startNewPointOnMap(opts = {}) {
   editPointId = null;
   mapSavedCenter = null;
   updateMapRecenterButton();
@@ -405,7 +566,8 @@ function startNewPointOnMap() {
     nameInput.value = "";
     nameInput.placeholder = POINT_NAME_PLACEHOLDER;
   }
-  startMapView();
+  startMapView(opts);
+  if (opts.skipGeo) return;
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
@@ -420,8 +582,8 @@ function startNewPointOnMap() {
   );
 }
 
-function startMapView() {
-  showMapView();
+function startMapView(opts = {}) {
+  showMapView(opts);
   if (editPointId) {
     const p = seaPoints.find((x) => x.id === editPointId);
     if (p) {
@@ -1315,7 +1477,7 @@ function renderAppSharePage() {
   }
 }
 
-function showAppShareView() {
+function showAppShareView(opts = {}) {
   collapseListPanelDetails();
   setAppTitleVisible(true);
   $("#view-list")?.setAttribute("hidden", "");
@@ -1324,6 +1486,7 @@ function showAppShareView() {
   $("#view-app-share")?.removeAttribute("hidden");
   renderAppSharePage();
   window.scrollTo({ top: 0, behavior: "smooth" });
+  if (!opts.skipRoute) commitSeaRoute({ view: "app-share" });
 }
 
 function bindAppShareUi() {
@@ -1331,8 +1494,8 @@ function bindAppShareUi() {
     showAppShareView();
   });
   $("#btn-back-from-app-share")?.addEventListener("click", () => {
-    showListView();
     setStatus("");
+    goBackOrList();
   });
 }
 

@@ -9,6 +9,7 @@ const APP_SHELL = [
   "./offline.html",
   "./css/styles.css",
   "./js/app.js",
+  "./js/sea-routes.js",
   "./js/pwa-update.js",
   "./js/cloud-sync.js",
   "./js/cloud-share.js",
