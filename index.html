@@ -6,16 +6,52 @@
       name="viewport"
       content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
+
+    <!-- 기본 SEO -->
     <meta name="theme-color" content="#0EA5E9" />
     <meta
       name="description"
-      content="물때첩 — 자주 가는 낚시 포인트를 등록하고 오늘의 물때·조석·바다 날씨를 확인하는 PWA"
+      content="물때첩 - 자주 가는 바다와 낚시 포인트를 등록하고 오늘의 물때, 조석예보, 바다 날씨를 한눈에 확인하는 무료 웹앱. 나만의 낚시 포인트를 저장하고 간편하게 관리하세요."
     />
+    <meta
+      name="keywords"
+      content="물때첩, 물때, 물때표, 물때 정보, 오늘의 물때, 바다 물때, 조석표, 조석예보, 조석 정보, 바다 날씨, 해양 날씨, 낚시 포인트, 낚시 물때, 바다 낚시, 물때 앱, 낚시 앱"
+    />
+    <meta name="author" content="물때첩 - 나만의 바다 포인트" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
     <link rel="canonical" href="https://sea.uxpwa.com/" />
-    <meta property="og:title" content="물때첩 — 바다 포인트 물때·날씨" />
-    <meta property="og:url" content="https://sea.uxpwa.com/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ko_KR" />
     <meta property="og:site_name" content="물때첩" />
-    <title>물때첩 — 바다 포인트 물때·날씨</title>
+    <meta property="og:title" content="물때첩 — 나만의 바다 포인트 물때·날씨 정보" />
+    <meta
+      property="og:description"
+      content="자주 가는 바다와 낚시 포인트를 등록하세요. 오늘의 물때, 조석예보, 바다 날씨를 포인트별로 간편하게 확인할 수 있습니다."
+    />
+    <meta property="og:url" content="https://sea.uxpwa.com/" />
+    <meta property="og:image" content="https://sea.uxpwa.com/icons/icon-512.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="물때첩 — 바다 포인트 물때·날씨" />
+    <meta
+      name="twitter:description"
+      content="나만의 바다 포인트를 등록하고 물때, 조석예보, 바다 날씨를 간편하게 확인하세요."
+    />
+    <meta name="twitter:image" content="https://sea.uxpwa.com/icons/icon-512.png" />
+
+    <!-- 모바일 및 PWA -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="물때첩" />
+
+    <title>물때첩 — 나만의 바다 포인트 물때·날씨 정보</title>
+
+
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
@@ -27,6 +63,29 @@
     />
     <link rel="stylesheet" href="./css/styles.css" />
     <script src="./deploy-version.js"></script>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "물때첩",
+        "alternateName": "나만의 바다 포인트 물때·날씨",
+        "url": "https://sea.uxpwa.com/",
+        "description": "자주 가는 바다와 낚시 포인트를 등록하고 오늘의 물때, 조석예보, 바다 날씨를 포인트별로 확인할 수 있는 무료 웹앱입니다.",
+        "applicationCategory": "LifestyleApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "JavaScript 사용 가능 브라우저",
+        "inLanguage": "ko-KR",
+        "isAccessibleForFree": true,
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "KRW"
+        }
+      }
+      </script>
+
+
   </head>
   <body class="sea-app">
     <div id="app-update-banner" class="app-update-banner" hidden role="alert" aria-live="assertive">
