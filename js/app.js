@@ -310,11 +310,18 @@ async function copyNavText(text, okMsg) {
   }
 }
 
+/** @param {SeaPoint} point */
+function detailAddressForCopy(point) {
+  const addr = String(point.address || "").trim();
+  if (addr) return addr;
+  return `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
+}
+
 function bindDetailNavUi() {
   $("#detail-nav-copy-search")?.addEventListener("click", () => {
     const point = getDetailPoint();
     if (!point) return;
-    copyNavText(navSearchLabel(point), "티맵 검색어를 복사했습니다.");
+    copyNavText(detailAddressForCopy(point), "주소를 복사했습니다.");
   });
   $("#detail-nav-copy-coords")?.addEventListener("click", () => {
     const point = getDetailPoint();
@@ -417,10 +424,19 @@ function getDetailPoint() {
   return seaPoints.find((p) => p.id === activePointId) || null;
 }
 
+function isSeaLinkShareView() {
+  if (ephemeralDetailPoint) return true;
+  const route = parseSeaRoute();
+  return route.view === "spot";
+}
+
 function syncDetailActionButtons(point) {
-  const ephemeral = Boolean(point?._ephemeral);
+  const ephemeral = Boolean(point?._ephemeral) || isSeaLinkShareView();
+  document.body.classList.toggle("sea-link-share-page", ephemeral);
+  $("#view-detail")?.classList.toggle("detail-readonly", ephemeral);
   $("#btn-delete-point")?.toggleAttribute("hidden", ephemeral);
   $("#btn-edit-point")?.toggleAttribute("hidden", ephemeral);
+  $("#btn-back-list")?.toggleAttribute("hidden", ephemeral);
   const shareBtn = $("#btn-share-point");
   if (shareBtn) shareBtn.hidden = !point || ephemeral;
 }
@@ -446,6 +462,8 @@ function showListView(opts = {}) {
   destroyAllMaps();
   activePointId = null;
   ephemeralDetailPoint = null;
+  document.body.classList.remove("sea-link-share-page");
+  $("#view-detail")?.classList.remove("detail-readonly");
   setAppTitleVisible(true);
   $("#view-list")?.removeAttribute("hidden");
   $("#view-map")?.setAttribute("hidden", "");
@@ -621,8 +639,7 @@ function recenterMapToSaved() {
 }
 
 function recenterDetailMapToPoint() {
-  if (!activePointId) return;
-  const point = seaPoints.find((p) => p.id === activePointId);
+  const point = getDetailPoint();
   if (!point || !detailMap) return;
   detailMap.setView([point.lat, point.lon], 15);
   detailMapMarker?.setLatLng([point.lat, point.lon]);

@@ -103,6 +103,21 @@ body.sea-hide-app-title .sea-wrap > #app-home-divider {
   display: none;
 }
 
+body.sea-link-share-page .sea-wrap > #app-title,
+body.sea-link-share-page .sea-wrap > #app-lede,
+body.sea-link-share-page .sea-wrap > #app-home-divider,
+body.sea-link-share-page #app-update-banner {
+  display: none !important;
+}
+
+body.sea-link-share-page .sea-wrap {
+  padding-top: 0.75rem;
+}
+
+.view-detail.detail-readonly .detail-actions {
+  display: none !important;
+}
+
 .app-guide[hidden] {
   display: none;
 }
