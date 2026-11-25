@@ -261,7 +261,12 @@
             검색
           </button>
         </div>
-        <ul id="map-search-results" class="map-search-results" hidden></ul>
+        <div id="map-search-results-panel" class="map-search-results-panel" hidden>
+          <p id="map-search-results-summary" class="map-search-results-summary" aria-live="polite"></p>
+          <div class="map-search-results-list-wrap">
+            <ul id="map-search-results" class="map-search-results"></ul>
+          </div>
+        </div>
 
         <div id="map-container" class="map-container" aria-label="지도"></div>
         <button

@@ -169,6 +169,7 @@ function bindUi() {
   $("#btn-map-recenter-saved")?.addEventListener("click", () => recenterMapToSaved());
   $("#btn-detail-map-recenter")?.addEventListener("click", () => recenterDetailMapToPoint());
   bindMapSearchHintDialog();
+  bindMapSearchResultsScroll();
   $("#btn-save-point")?.addEventListener("click", () => savePointFromMap());
   $("#point-save-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -581,12 +582,61 @@ function renderPointList() {
   );
 }
 
+function mapSearchResultsPanel() {
+  return $("#map-search-results-panel");
+}
+
+function setMapSearchResultsVisible(visible) {
+  const panel = mapSearchResultsPanel();
+  if (!panel) return;
+  if (visible) panel.removeAttribute("hidden");
+  else {
+    panel.setAttribute("hidden", "");
+    panel.classList.remove("map-search-results-panel--scrollable", "map-search-results-panel--at-end");
+  }
+}
+
+function syncMapSearchResultsChrome() {
+  const list = $("#map-search-results");
+  const panel = mapSearchResultsPanel();
+  const summary = $("#map-search-results-summary");
+  if (!list || !panel) return;
+  const count = list.childElementCount;
+  if (summary) {
+    if (count === 0) summary.textContent = "";
+    else {
+      const scrollable = list.scrollHeight > list.clientHeight + 2;
+      summary.textContent = scrollable
+        ? `검색 결과 ${count}곳 · 목록을 아래로 밀어 더 보세요`
+        : `검색 결과 ${count}곳`;
+    }
+  }
+  const scrollable = count > 0 && list.scrollHeight > list.clientHeight + 2;
+  panel.classList.toggle("map-search-results-panel--scrollable", scrollable);
+  const atEnd = list.scrollHeight <= list.clientHeight + list.scrollTop + 6;
+  panel.classList.toggle("map-search-results-panel--at-end", atEnd);
+}
+
+let mapSearchResultsScrollBound = false;
+
+function bindMapSearchResultsScroll() {
+  if (mapSearchResultsScrollBound) return;
+  mapSearchResultsScrollBound = true;
+  $("#map-search-results")?.addEventListener(
+    "scroll",
+    () => syncMapSearchResultsChrome(),
+    { passive: true }
+  );
+}
+
 function resetMapSearchUi() {
   const input = $("#map-search-input");
   if (input) input.value = "";
   const resultsEl = $("#map-search-results");
-  resultsEl?.setAttribute("hidden", "");
   resultsEl?.replaceChildren();
+  const summary = $("#map-search-results-summary");
+  if (summary) summary.textContent = "";
+  setMapSearchResultsVisible(false);
 }
 
 function startNewPointOnMap(opts = {}) {
@@ -649,8 +699,7 @@ function recenterMapToSaved() {
   mapCenter = { lat: mapSavedCenter.lat, lon: mapSavedCenter.lon };
   map.setView([mapSavedCenter.lat, mapSavedCenter.lon], 15);
   refreshCenterAddress();
-  const resultsEl = $("#map-search-results");
-  resultsEl?.setAttribute("hidden", "");
+  setMapSearchResultsVisible(false);
 }
 
 function recenterDetailMapToPoint() {
@@ -841,7 +890,7 @@ function mapSearchSecondaryLine(r) {
 function selectMapSearchResult(r) {
   mapCenter = { lat: r.lat, lon: r.lon };
   map?.setView([r.lat, r.lon], 15);
-  $("#map-search-results")?.setAttribute("hidden", "");
+  setMapSearchResultsVisible(false);
   const line = mapSearchPrimaryLine(r);
   if (line) applyMapCenterAddress(line);
   else refreshCenterAddress();
@@ -908,18 +957,15 @@ async function runMapSearch() {
   if (!q || !resultsEl || mapSearchInFlight) return;
   setMapSearchBusy(true);
   setStatus("검색 중…");
-  resultsEl.setAttribute("hidden", "");
+  setMapSearchResultsVisible(false);
   await yieldForMapSearchUi();
   try {
     const data = await fetchGeocode({ q });
     const results = data.results || [];
     renderMapSearchResults(results);
+    setMapSearchResultsVisible(results.length > 0);
     if (results.length) {
-      resultsEl.removeAttribute("hidden");
-    } else {
-      resultsEl.setAttribute("hidden", "");
-    }
-    if (results.length) {
+      requestAnimationFrame(() => requestAnimationFrame(() => syncMapSearchResultsChrome()));
       setStatus("");
     } else {
       setStatus("");
