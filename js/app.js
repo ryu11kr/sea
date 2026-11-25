@@ -180,7 +180,7 @@ function bindUi() {
       savePointFromMap();
     }
   });
-  $("#btn-back-list")?.addEventListener("click", goBackOrList);
+  $("#btn-back-list")?.addEventListener("click", goToPointList);
   $("#btn-share-point")?.addEventListener("click", () => {
     shareActivePointLink().catch(() => {});
   });
@@ -376,6 +376,11 @@ function goBackOrList() {
   showListView({ replaceRoute: true });
 }
 
+function goToPointList() {
+  editPointId = null;
+  showListView({ replaceRoute: true });
+}
+
 /** @param {import("./sea-routes.js").SeaRoute} route */
 function navigateSeaRoute(route, { skipRoute = false } = {}) {
   switch (route.view) {
@@ -526,15 +531,16 @@ function showDetailView(pointId, opts = {}) {
   requestAnimationFrame(() => initDetailMap(point));
   loadDetailData(point);
   if (!opts.skipRoute) {
+    const replaceRoute = Boolean(opts.replaceRoute);
     if (ephemeralDetailPoint) {
       const q = new URLSearchParams();
       q.set("lat", String(Number(point.lat).toFixed(5)));
       q.set("lon", String(Number(point.lon).toFixed(5)));
       q.set("n", point.name);
       if (point.address) q.set("a", point.address);
-      commitSeaRoute({ view: "spot", params: q });
+      commitSeaRoute({ view: "spot", params: q }, { replace: replaceRoute });
     } else if (activePointId) {
-      commitSeaRoute({ view: "point", id: activePointId });
+      commitSeaRoute({ view: "point", id: activePointId }, { replace: replaceRoute });
     }
   }
 }
@@ -575,6 +581,14 @@ function renderPointList() {
   );
 }
 
+function resetMapSearchUi() {
+  const input = $("#map-search-input");
+  if (input) input.value = "";
+  const resultsEl = $("#map-search-results");
+  resultsEl?.setAttribute("hidden", "");
+  resultsEl?.replaceChildren();
+}
+
 function startNewPointOnMap(opts = {}) {
   editPointId = null;
   mapSavedCenter = null;
@@ -584,6 +598,7 @@ function startNewPointOnMap(opts = {}) {
     nameInput.value = "";
     nameInput.placeholder = POINT_NAME_PLACEHOLDER;
   }
+  resetMapSearchUi();
   startMapView(opts);
   if (opts.skipGeo) return;
   if (!navigator.geolocation) return;
@@ -959,7 +974,7 @@ function savePointFromMap() {
         updatedAt: now
       };
       saveState();
-      showDetailView(editPointId);
+      showDetailView(editPointId, { replaceRoute: true });
       editPointId = null;
       return;
     }
@@ -977,7 +992,7 @@ function savePointFromMap() {
   saveState();
   renderPointList();
   setStatus(`「${name}」 포인트를 저장했습니다.`);
-  showDetailView(point.id);
+  showDetailView(point.id, { replaceRoute: true });
 }
 
 function deleteActivePoint() {
