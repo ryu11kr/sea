@@ -960,7 +960,12 @@ async function runMapSearch() {
   setMapSearchResultsVisible(false);
   await yieldForMapSearchUi();
   try {
-    const data = await fetchGeocode({ q });
+    const geoParams = { q };
+    if (Number.isFinite(mapCenter.lat) && Number.isFinite(mapCenter.lon)) {
+      geoParams.originLat = String(mapCenter.lat);
+      geoParams.originLon = String(mapCenter.lon);
+    }
+    const data = await fetchGeocode(geoParams);
     const results = data.results || [];
     renderMapSearchResults(results);
     setMapSearchResultsVisible(results.length > 0);
@@ -1289,7 +1294,19 @@ function buildClientSearchVariants(q) {
   return variants;
 }
 
-function rankClientGeocodeResults(list, q) {
+function haversineKmClient(lat1, lon1, lat2, lon2) {
+  const r = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(a));
+}
+
+function rankClientGeocodeResults(list, q, origin) {
   const nq = q.replace(/\s+/g, "").toLowerCase();
   const seen = new Set();
   const uniq = [];
@@ -1312,7 +1329,18 @@ function rankClientGeocodeResults(list, q) {
     if (title.includes(nq)) return 70;
     return 10;
   };
-  return uniq.sort((a, b) => score(b) - score(a)).slice(0, 12);
+  const hasOrigin =
+    origin && Number.isFinite(origin.lat) && Number.isFinite(origin.lon);
+  return uniq
+    .sort((a, b) => {
+      if (hasOrigin) {
+        const da = haversineKmClient(origin.lat, origin.lon, a.lat, a.lon);
+        const db = haversineKmClient(origin.lat, origin.lon, b.lat, b.lon);
+        if (Math.abs(da - db) > 0.05) return da - db;
+      }
+      return score(b) - score(a);
+    })
+    .slice(0, 30);
 }
 
 async function fetchGeocode(params, options = {}) {
@@ -1364,7 +1392,11 @@ async function fallbackGeocode(params, options = {}) {
         });
       }
     }
-    const results = rankClientGeocodeResults(merged, params.q);
+    const origin =
+      Number.isFinite(Number(params.originLat)) && Number.isFinite(Number(params.originLon))
+        ? { lat: Number(params.originLat), lon: Number(params.originLon) }
+        : null;
+    const results = rankClientGeocodeResults(merged, params.q, origin);
     return { results: isSuggest ? results.slice(0, 10) : results };
   }
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${params.lat}&lon=${params.lon}&format=json&zoom=14`;

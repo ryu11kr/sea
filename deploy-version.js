@@ -1,1 +1,1 @@
-window.SEA_DEPLOY_VERSION={"build":58,"cacheName":"sea-tide-58","label":"빌드 58","updatedAt":"2026-11-24T02:45:04.2113706Z"};
+window.SEA_DEPLOY_VERSION={"build":59,"cacheName":"sea-tide-59","label":"빌드 59","updatedAt":"2026-11-26T01:16:57.5403130Z"};

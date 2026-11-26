@@ -1,5 +1,19 @@
 /** @typedef {{ title: string, address: string, lat: number, lon: number, kind?: string }} GeoResult */
 
+const GEO_SEARCH_LIMIT = 30;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const r = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(a));
+}
+
 /**
  * @param {Record<string, unknown> | null | undefined} road
  * @param {Record<string, unknown> | null | undefined} land
@@ -59,7 +73,12 @@ function normKey(s) {
  * @param {string} q
  * @returns {GeoResult[]}
  */
-function dedupeAndRank(list, q) {
+/**
+ * @param {GeoResult[]} list
+ * @param {string} q
+ * @param {{ originLat?: number, originLon?: number, limit?: number }} [opts]
+ */
+function dedupeAndRank(list, q, opts = {}) {
   const nq = normKey(q);
   const seen = new Set();
   const out = [];
@@ -85,7 +104,21 @@ function dedupeAndRank(list, q) {
     return s;
   };
 
-  return out.sort((a, b) => score(b) - score(a)).slice(0, 12);
+  const limit = opts.limit ?? GEO_SEARCH_LIMIT;
+  const originLat = opts.originLat;
+  const originLon = opts.originLon;
+  const hasOrigin = Number.isFinite(originLat) && Number.isFinite(originLon);
+
+  const ranked = out.sort((a, b) => {
+    if (hasOrigin) {
+      const da = haversineKm(originLat, originLon, a.lat, a.lon);
+      const db = haversineKm(originLat, originLon, b.lat, b.lon);
+      if (Math.abs(da - db) > 0.05) return da - db;
+    }
+    return score(b) - score(a);
+  });
+
+  return ranked.slice(0, limit);
 }
 
 /**
@@ -229,7 +262,7 @@ async function photonSearch(q) {
  * @param {string} kakaoKey
  * @returns {Promise<{ provider: string, results: GeoResult[] }>}
  */
-async function searchPlaces(q, kakaoKey) {
+async function searchPlaces(q, kakaoKey, geoOpts = {}) {
   const variants = buildSearchVariants(q);
   const compact = q.replace(/\s+/g, "");
   const roadFocus = looksLikeRoadAddress(compact);
@@ -266,7 +299,7 @@ async function searchPlaces(q, kakaoKey) {
     if (kakaoKey && merged.length > 0) provider = "kakao+fallback";
   }
 
-  const results = dedupeAndRank(merged, q);
+  const results = dedupeAndRank(merged, q, geoOpts);
   const uniqueErrors = [...new Set(kakaoErrors)].slice(0, 3);
   return { provider, results, kakaoErrors: uniqueErrors.length ? uniqueErrors : undefined };
 }
@@ -310,8 +343,16 @@ export default async function handler(req, res) {
     }
 
     if (q) {
-      const { provider, results, kakaoErrors } = await searchPlaces(q, kakaoKey);
-      const body = { provider, results };
+      const originLat = Number(req.query.originLat);
+      const originLon = Number(req.query.originLon);
+      const geoOpts = {
+        limit: GEO_SEARCH_LIMIT,
+        ...(Number.isFinite(originLat) && Number.isFinite(originLon)
+          ? { originLat, originLon }
+          : {})
+      };
+      const { provider, results, kakaoErrors } = await searchPlaces(q, kakaoKey, geoOpts);
+      const body = { provider, results, limit: GEO_SEARCH_LIMIT };
       if (kakaoErrors?.length) body.kakaoErrors = kakaoErrors;
       if (kakaoKey && results.length === 0) {
         body.hint =

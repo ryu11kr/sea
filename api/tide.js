@@ -41,13 +41,21 @@ export default async function handler(req, res) {
   try {
     const hl = await fetchDataGoHighLow(serviceKey, station.code, date);
     if (hl.items.length) {
-      res.status(200).json({ ...base, items: hl.items, source: "data.go.kr/tideFcstHghLw" });
+      res.status(200).json({
+        ...base,
+        items: sanitizeTideItems(hl.items),
+        source: "data.go.kr/tideFcstHghLw"
+      });
       return;
     }
 
     const survey = await fetchDataGoSurvey(serviceKey, station.code, date);
     if (survey.items.length) {
-      res.status(200).json({ ...base, items: survey.items, source: "data.go.kr/surveyTideLevel" });
+      res.status(200).json({
+        ...base,
+        items: sanitizeTideItems(survey.items),
+        source: "data.go.kr/surveyTideLevel"
+      });
       return;
     }
 
@@ -200,9 +208,7 @@ async function fetchDataGoSurvey(serviceKey, obsCode, date) {
     rowCount = rows.length;
     if (rows[0]) sampleKeys = Object.keys(rows[0]);
 
-    let items = extractHighLowFromSeries(rows, "pre");
-    if (!items.length) items = extractHighLowFromSeries(rows, "obs");
-    if (!items.length) items = extractHighLowFromSeries(rows, "auto");
+    let items = extractHighLowFromSeries(rows);
     if (items.length) {
       return { items, apiMessage, resultCode, rowCount, sampleKeys };
     }
@@ -244,9 +250,11 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
     apiMessage = dataGoMessage(data) || apiMessage;
     if (!dataGoOk(data)) continue;
 
-    const items = dataGoRows(data)
-      .map(normalizeTideRow)
-      .filter((i) => i && (i.type === "high" || i.type === "low"));
+    const items = sanitizeTideItems(
+      dataGoRows(data)
+        .map(normalizeTideRow)
+        .filter((i) => i && (i.type === "high" || i.type === "low"))
+    );
     if (items.length) {
       return { items, apiMessage, resultCode };
     }
@@ -354,10 +362,13 @@ function rowTime(row) {
 function normalizeLevelCm(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return NaN;
-  if (Math.abs(n) < 30 && String(v).includes(".")) {
-    return Math.round(n * 100);
+  let cm = Math.round(n);
+  if (n > 0 && n <= 12) {
+    const s = String(v);
+    if (s.includes(".") || n < 3) cm = Math.round(n * 100);
   }
-  return Math.round(n);
+  if (cm > 1200 || cm < -100) return NaN;
+  return cm;
 }
 
 function formatObsTime(raw) {
@@ -376,48 +387,105 @@ function formatObsTime(raw) {
 
 function inferTideType(raw) {
   const s = String(raw || "").toUpperCase();
-  if (s.includes("고") || s === "H" || s === "HIGH" || s === "2") return "high";
-  if (s.includes("저") || s === "L" || s === "LOW" || s === "1") return "low";
+  if (s.includes("고") || s.includes("만") || s === "H" || s === "HIGH") return "high";
+  if (s.includes("저") || s.includes("간") || s === "L" || s === "LOW") return "low";
   return "unknown";
 }
 
-function extractHighLowFromSeries(rows, mode = "auto") {
+function tideTimeToMinutes(time) {
+  const m = String(time || "").match(/(\d{1,2}):(\d{2})/);
+  if (!m) return NaN;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+
+/** @param {{ time: string, levelCm?: number | null, type: string }[]} items */
+function sanitizeTideItems(items) {
+  const valid = (items || [])
+    .filter((i) => i && (i.type === "high" || i.type === "low"))
+    .map((i) => ({
+      time: formatObsTime(i.time),
+      levelCm: Number.isFinite(i.levelCm) ? i.levelCm : null,
+      type: i.type
+    }))
+    .filter((i) => {
+      if (i.levelCm == null) return true;
+      return i.levelCm >= -100 && i.levelCm <= 1200;
+    })
+  .map((i) => ({ ...i, _min: tideTimeToMinutes(i.time) }))
+    .filter((i) => Number.isFinite(i._min));
+
+  valid.sort((a, b) => a._min - b._min);
+
+  const out = [];
+  const MIN_GAP_MIN = 3 * 60;
+  for (const item of valid) {
+    const lastSame = [...out].reverse().find((x) => x.type === item.type);
+    if (lastSame && item._min - lastSame._min < MIN_GAP_MIN) {
+      if (
+        item.type === "high" &&
+        (item.levelCm ?? 0) > (lastSame.levelCm ?? 0)
+      ) {
+        const idx = out.indexOf(lastSame);
+        out[idx] = item;
+      } else if (
+        item.type === "low" &&
+        (item.levelCm ?? 9999) < (lastSame.levelCm ?? 9999)
+      ) {
+        const idx = out.indexOf(lastSame);
+        out[idx] = item;
+      }
+      continue;
+    }
+    out.push(item);
+  }
+
+  return out
+    .sort((a, b) => a._min - b._min)
+    .slice(0, 8)
+    .map(({ _min, ...rest }) => rest);
+}
+
+function pickDailyExtremes(points, pickHigh) {
+  const sorted = [...points].sort((a, b) => tideTimeToMinutes(a.time) - tideTimeToMinutes(b.time));
+  const candidates = [];
+  for (let i = 1; i < sorted.length - 1; i += 1) {
+    const prev = sorted[i - 1].levelCm;
+    const cur = sorted[i].levelCm;
+    const next = sorted[i + 1].levelCm;
+    if (pickHigh && cur >= prev && cur >= next) candidates.push(sorted[i]);
+    if (!pickHigh && cur <= prev && cur <= next) candidates.push(sorted[i]);
+  }
+  candidates.sort((a, b) => (pickHigh ? b.levelCm - a.levelCm : a.levelCm - b.levelCm));
+  const picked = [];
+  const MIN_GAP = 3 * 60;
+  for (const c of candidates) {
+    const cm = tideTimeToMinutes(c.time);
+    if (picked.some((p) => Math.abs(tideTimeToMinutes(p.time) - cm) < MIN_GAP)) continue;
+    picked.push({
+      time: c.time,
+      levelCm: c.levelCm,
+      type: pickHigh ? "high" : "low"
+    });
+    if (picked.length >= 2) break;
+  }
+  return picked;
+}
+
+function extractHighLowFromSeries(rows) {
   const points = rows
     .map((row) => {
       const time = formatObsTime(rowTime(row));
-      const level = rowLevel(row, mode);
+      let level = rowLevel(row, "pre");
+      if (!Number.isFinite(level)) level = rowLevel(row, "obs");
       if (!time || !Number.isFinite(level)) return null;
       return { time, levelCm: level };
     })
     .filter(Boolean);
 
-  if (points.length < 3) return [];
+  if (points.length < 5) return [];
 
-  const out = [];
-  for (let i = 1; i < points.length - 1; i += 1) {
-    const prev = points[i - 1].levelCm;
-    const cur = points[i].levelCm;
-    const next = points[i + 1].levelCm;
-    if (cur >= prev && cur >= next) {
-      out.push({ time: points[i].time, levelCm: cur, type: "high" });
-    }
-    if (cur <= prev && cur <= next) {
-      out.push({ time: points[i].time, levelCm: cur, type: "low" });
-    }
-  }
-
-  if (out.length) return out.slice(0, 8);
-
-  const sorted = [...points].sort((a, b) => a.time.localeCompare(b.time));
-  const half = Math.floor(sorted.length / 2);
-  const early = sorted.slice(0, half);
-  const late = sorted.slice(half);
-  const pick = (arr, pickHigh) => {
-    if (!arr.length) return null;
-    const best = arr.reduce((a, b) => (pickHigh ? (a.levelCm >= b.levelCm ? a : b) : a.levelCm <= b.levelCm ? a : b));
-    return { ...best, type: pickHigh ? "high" : "low" };
-  };
-  const hi = pick(sorted, true);
-  const lo = pick(sorted, false);
-  return [hi, lo].filter(Boolean);
+  return sanitizeTideItems([
+    ...pickDailyExtremes(points, true),
+    ...pickDailyExtremes(points, false)
+  ]);
 }
