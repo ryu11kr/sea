@@ -344,7 +344,7 @@ async function initGoogleAuthUi(client, cfg) {
       if (incomingEl) incomingEl.replaceChildren();
       cloudSaveListenerBound = false;
       if (introEl) introEl.hidden = false;
-      statusEl.textContent = "구글 아이디로 로그인하면 포인트를 클라우드에 보관할 수 있습니다.";
+      statusEl.textContent = "구글 로그인을 하면 포인트를 클라우드에 보관할 수 있습니다.";
       if (syncEl) {
         syncEl.hidden = true;
         syncEl.textContent = "";
