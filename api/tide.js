@@ -331,9 +331,29 @@ function buildUserMessage(detail) {
 
 function normalizeTideRow(row) {
   if (!row || typeof row !== "object") return null;
-  const time = getField(row, "tph_time", "hl_time", "time", "obs_time", "obsTime", "record_time");
+  const time = getField(
+    row,
+    "tph_time",
+    "predcDt",
+    "predc_dt",
+    "hl_time",
+    "time",
+    "obs_time",
+    "obsTime",
+    "record_time"
+  );
   const level = rowLevel(row, "pre");
-  const label = getField(row, "hl_code", "hl_type", "tide_type", "type", "HL_CODE", "hlCode");
+  const label = getField(
+    row,
+    "hl_code",
+    "extrSe",
+    "extr_se",
+    "hl_type",
+    "tide_type",
+    "type",
+    "HL_CODE",
+    "hlCode"
+  );
   if (!time) return null;
 
   const type = inferTideType(label);
@@ -363,6 +383,8 @@ function rowLevel(row, mode = "auto") {
   const preKeys = [
     "tph_level",
     "tphLevel",
+    "predcTdlvVl",
+    "predc_tdlv_vl",
     "tph_hgt",
     "tphHgt",
     "tdlvHgt",
@@ -442,6 +464,8 @@ function inferTideType(raw) {
   const s = String(raw || "").toUpperCase();
   if (s.includes("고") || s.includes("만") || s === "H" || s === "HIGH") return "high";
   if (s.includes("저") || s.includes("간") || s === "L" || s === "LOW") return "low";
+  if (s === "1" || s === "HGH" || s === "HW") return "high";
+  if (s === "2" || s === "LW" || s === "LWST") return "low";
   return "unknown";
 }
 
