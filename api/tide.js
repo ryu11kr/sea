@@ -51,10 +51,22 @@ export default async function handler(req, res) {
 
     const survey = await fetchDataGoSurvey(serviceKey, station.code, date);
     if (survey.items.length) {
+      const hlHint =
+        hl.items.length === 0 && (hl.resultCode || hl.apiMessage || hl.rowCount)
+          ? {
+              hlFallback: {
+                code: hl.resultCode || null,
+                message: hl.apiMessage || null,
+                rowCount: hl.rowCount ?? 0,
+                sampleKeys: hl.sampleKeys || []
+              }
+            }
+          : {};
       res.status(200).json({
         ...base,
         items: sanitizeTideItems(survey.items),
-        source: "data.go.kr/surveyTideLevel"
+        source: "data.go.kr/surveyTideLevel",
+        ...hlHint
       });
       return;
     }
@@ -130,11 +142,30 @@ async function fetchText(url) {
   return { text, status: upstream.status };
 }
 
+function normalizeDataGoRoot(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  if (raw.response) return raw;
+  if (raw.header || raw.body) return { response: raw };
+  const topKey = Object.keys(raw).find(
+    (k) =>
+      /response$/i.test(k) ||
+      /gettide/i.test(k) ||
+      /apiservice/i.test(k) ||
+      /service$/i.test(k)
+  );
+  if (topKey && raw[topKey] && typeof raw[topKey] === "object") {
+    const inner = raw[topKey];
+    if (inner.response) return inner;
+    if (inner.header || inner.body) return { response: inner };
+  }
+  return raw;
+}
+
 function parseDataGoPayload(text) {
   const t = text.trim();
   if (t.startsWith("{") || t.startsWith("[")) {
     try {
-      return JSON.parse(text);
+      return normalizeDataGoRoot(JSON.parse(text));
     } catch {
       return null;
     }
@@ -154,8 +185,11 @@ function dataGoHeader(data) {
 }
 
 function dataGoOk(data) {
-  const code = String(dataGoHeader(data).resultCode ?? "");
-  return code === "00" || code === "0";
+  const code = String(dataGoHeader(data).resultCode ?? "").trim();
+  const msg = String(dataGoMessage(data) || "").toUpperCase();
+  if (code === "00" || code === "0" || code === "00000") return true;
+  if (msg.includes("NORMAL")) return true;
+  return false;
 }
 
 function dataGoMessage(data) {
@@ -168,19 +202,14 @@ function dataGoCode(data) {
 
 function dataGoRows(data) {
   const body = data?.response?.body ?? data?.body ?? {};
-  const items = body?.items?.item ?? body?.item ?? [];
-  return Array.isArray(items) ? items : items ? [items] : [];
+  const rawItems = body?.items;
+  if (rawItems == null || rawItems === "") return [];
+  const items = rawItems?.item ?? body?.item ?? rawItems;
+  if (Array.isArray(items)) return items;
+  return items && typeof items === "object" ? [items] : [];
 }
 
 async function fetchDataGoSurvey(serviceKey, obsCode, date) {
-  const params = {
-    type: "json",
-    obsCode,
-    reqDate: date,
-    pageNo: "1",
-    numOfRows: "300",
-    min: "10"
-  };
   let apiMessage = "";
   let resultCode = "";
   let rowCount = 0;
@@ -188,29 +217,40 @@ async function fetchDataGoSurvey(serviceKey, obsCode, date) {
   let sampleKeys = [];
   let lastRows = [];
 
-  for (const url of buildDataGoUrls(DATA_GO_SURVEY, serviceKey, params)) {
-    const { text, status } = await fetchText(url);
-    httpStatus = status;
-    const data = parseDataGoPayload(text);
-    if (!data) {
-      if (status === 403) {
-        resultCode = "HTTP403";
-        apiMessage = "공공데이터가 요청을 거부했습니다(403). 인증키·활용신청 승인을 확인하세요.";
+  for (const min of ["60", "10"]) {
+    const params = {
+      type: "json",
+      obsCode,
+      reqDate: date,
+      pageNo: "1",
+      numOfRows: "300",
+      min
+    };
+
+    for (const url of buildDataGoUrls(DATA_GO_SURVEY, serviceKey, params)) {
+      const { text, status } = await fetchText(url);
+      httpStatus = status;
+      const data = parseDataGoPayload(text);
+      if (!data) {
+        if (status === 403) {
+          resultCode = "HTTP403";
+          apiMessage = "공공데이터가 요청을 거부했습니다(403). 인증키·활용신청 승인을 확인하세요.";
+        }
+        continue;
       }
-      continue;
-    }
-    resultCode = dataGoCode(data);
-    apiMessage = dataGoMessage(data) || apiMessage;
-    if (!dataGoOk(data)) continue;
+      resultCode = dataGoCode(data);
+      apiMessage = dataGoMessage(data) || apiMessage;
+      if (!dataGoOk(data)) continue;
 
-    const rows = dataGoRows(data);
-    lastRows = rows;
-    rowCount = rows.length;
-    if (rows[0]) sampleKeys = Object.keys(rows[0]);
+      const rows = dataGoRows(data);
+      lastRows = rows;
+      rowCount = rows.length;
+      if (rows[0]) sampleKeys = Object.keys(rows[0]);
 
-    let items = extractHighLowFromSeries(rows);
-    if (items.length) {
-      return { items, apiMessage, resultCode, rowCount, sampleKeys };
+      const items = extractHighLowFromSeries(rows);
+      if (items.length) {
+        return { items, apiMessage, resultCode, rowCount, sampleKeys };
+      }
     }
   }
 
@@ -230,10 +270,12 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
     obsCode,
     reqDate: date,
     pageNo: "1",
-    numOfRows: "24"
+    numOfRows: "300"
   };
   let apiMessage = "";
   let resultCode = "";
+  let rowCount = 0;
+  let sampleKeys = [];
 
   for (const url of buildDataGoUrls(DATA_GO_HL, serviceKey, params)) {
     const { text, status } = await fetchText(url);
@@ -250,16 +292,23 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
     apiMessage = dataGoMessage(data) || apiMessage;
     if (!dataGoOk(data)) continue;
 
+    const rows = dataGoRows(data);
+    rowCount = rows.length;
+    if (rows[0]) sampleKeys = Object.keys(rows[0]);
+
     const items = sanitizeTideItems(
-      dataGoRows(data)
+      rows
         .map(normalizeTideRow)
         .filter((i) => i && (i.type === "high" || i.type === "low"))
     );
     if (items.length) {
-      return { items, apiMessage, resultCode };
+      return { items, apiMessage, resultCode, rowCount, sampleKeys };
+    }
+    if (rowCount > 0 && !apiMessage) {
+      apiMessage = `고·저조 ${rowCount}건 수신, 파싱 실패 (필드: ${sampleKeys.join(", ") || "?"})`;
     }
   }
-  return { items: [], apiMessage, resultCode };
+  return { items: [], apiMessage, resultCode, rowCount, sampleKeys };
 }
 
 function buildUserMessage(detail) {
@@ -282,10 +331,9 @@ function buildUserMessage(detail) {
 
 function normalizeTideRow(row) {
   if (!row || typeof row !== "object") return null;
-  const time =
-    row.tph_time || row.hl_time || row.time || row.obs_time || row.obsTime || row.record_time;
-  const level = rowLevel(row);
-  const label = row.hl_code || row.hl_type || row.tide_type || row.type || row.HL_CODE;
+  const time = getField(row, "tph_time", "hl_time", "time", "obs_time", "obsTime", "record_time");
+  const level = rowLevel(row, "pre");
+  const label = getField(row, "hl_code", "hl_type", "tide_type", "type", "HL_CODE", "hlCode");
   if (!time) return null;
 
   const type = inferTideType(label);
@@ -313,6 +361,10 @@ function getField(row, ...names) {
 
 function rowLevel(row, mode = "auto") {
   const preKeys = [
+    "tph_level",
+    "tphLevel",
+    "tph_hgt",
+    "tphHgt",
     "tdlvHgt",
     "preTideLevel",
     "predictTideLevel",
@@ -345,6 +397,7 @@ function rowLevel(row, mode = "auto") {
 function rowTime(row) {
   return getField(
     row,
+    "tph_time",
     "obsrvnDt",
     "obsTime",
     "obsDate",
@@ -417,8 +470,13 @@ function sanitizeTideItems(items) {
   valid.sort((a, b) => a._min - b._min);
 
   const out = [];
-  const MIN_GAP_MIN = 3 * 60;
+  const MIN_GAP_MIN = 5 * 60;
+  const MIN_SEQ_GAP = 2 * 60 + 30;
   for (const item of valid) {
+    const last = out[out.length - 1];
+    if (last && item._min - last._min < MIN_SEQ_GAP) {
+      continue;
+    }
     const lastSame = [...out].reverse().find((x) => x.type === item.type);
     if (lastSame && item._min - lastSame._min < MIN_GAP_MIN) {
       if (
@@ -457,7 +515,7 @@ function pickDailyExtremes(points, pickHigh) {
   }
   candidates.sort((a, b) => (pickHigh ? b.levelCm - a.levelCm : a.levelCm - b.levelCm));
   const picked = [];
-  const MIN_GAP = 3 * 60;
+  const MIN_GAP = 5 * 60;
   for (const c of candidates) {
     const cm = tideTimeToMinutes(c.time);
     if (picked.some((p) => Math.abs(tideTimeToMinutes(p.time) - cm) < MIN_GAP)) continue;
