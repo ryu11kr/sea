@@ -738,7 +738,64 @@ body.sea-pc #detail-nav-tmap {
   gap: 0.55rem;
 }
 
-.detail-actions .big-btn {
+.detail-actions .back-btn-bottom {
+  margin-top: 0;
+  min-height: 4.15rem;
+  font-size: clamp(1.28rem, 4.5vw, 1.45rem);
+}
+
+.detail-fold {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg-raised);
+  border: 2px solid var(--brand);
+  border-radius: 1rem;
+}
+
+.detail-fold-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  font-size: clamp(1.15rem, 4.2vw, 1.3rem);
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--text);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.detail-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.detail-fold-summary::after {
+  flex-shrink: 0;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: -0.15rem;
+  border-right: 2.5px solid var(--muted);
+  border-bottom: 2.5px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+  content: "";
+}
+
+.detail-fold[open] > .detail-fold-summary::after {
+  margin-top: 0.2rem;
+  transform: rotate(-135deg);
+}
+
+.detail-fold-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0 0.85rem 0.9rem;
+}
+
+.detail-fold-actions .big-btn {
   min-height: 3.85rem;
 }
 

@@ -318,6 +318,11 @@ function collapseListPanelDetails() {
   });
 }
 
+function collapseDetailPointManage() {
+  const el = $("#detail-point-manage");
+  if (el) el.open = false;
+}
+
 function setAppTitleVisible(visible) {
   document.body.classList.toggle("sea-hide-app-title", !visible);
 }
@@ -420,6 +425,8 @@ function syncDetailActionButtons(point) {
   $("#btn-back-list")?.toggleAttribute("hidden", ephemeral);
   const shareBtn = $("#btn-share-point");
   if (shareBtn) shareBtn.hidden = !point || ephemeral;
+  const manage = $("#detail-point-manage");
+  if (manage) manage.hidden = ephemeral;
 }
 
 async function shareActivePointLink() {
@@ -440,6 +447,7 @@ async function shareActivePointLink() {
 }
 
 function showListView(opts = {}) {
+  collapseDetailPointManage();
   destroyAllMaps();
   activePointId = null;
   ephemeralDetailPoint = null;
@@ -458,6 +466,7 @@ function showListView(opts = {}) {
 }
 
 function showMapView(opts = {}) {
+  collapseDetailPointManage();
   destroyDetailMap();
   setAppTitleVisible(false);
   $("#view-list")?.setAttribute("hidden", "");
@@ -475,6 +484,7 @@ function showMapView(opts = {}) {
  * @param {string | SeaPoint} pointId
  */
 function showDetailView(pointId, opts = {}) {
+  collapseDetailPointManage();
   ephemeralDetailPoint = null;
   /** @type {SeaPoint | undefined} */
   let point;

@@ -357,13 +357,20 @@
         </article>
 
         <div class="detail-actions">
-          <button type="button" id="btn-share-point" class="big-btn primary">
-            포인트 링크 공유
-          </button>
-          <button type="button" id="btn-edit-point" class="big-btn secondary">위치 다시 잡기</button>
-          <button type="button" id="btn-delete-point" class="big-btn ghost danger-text">
-            포인트 삭제
-          </button>
+          <details class="detail-fold detail-point-manage" id="detail-point-manage">
+            <summary class="detail-fold-summary">포인트 관리</summary>
+            <div class="detail-fold-actions">
+              <button type="button" id="btn-share-point" class="big-btn primary">
+                포인트 링크 공유
+              </button>
+              <button type="button" id="btn-edit-point" class="big-btn secondary">
+                위치 다시 잡기
+              </button>
+              <button type="button" id="btn-delete-point" class="big-btn ghost danger-text">
+                포인트 삭제
+              </button>
+            </div>
+          </details>
           <button type="button" id="btn-back-list" class="big-btn back-btn back-btn-bottom">
             ← 포인트 목록
           </button>
