@@ -296,12 +296,7 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
     rowCount = rows.length;
     if (rows[0]) sampleKeys = Object.keys(rows[0]);
 
-    const items = sanitizeTideItems(
-      rows
-        .map(normalizeTideRow)
-        .filter((i) => i && (i.type === "high" || i.type === "low")),
-      { fromHl: true }
-    );
+    const items = sanitizeTideItems(mapHighLowRows(rows), { fromHl: true });
     if (items.length) {
       return { items, apiMessage, resultCode, rowCount, sampleKeys };
     }
@@ -465,11 +460,35 @@ function inferTideType(raw) {
   const s = String(raw || "").toUpperCase();
   if (s.includes("고") || s.includes("만") || s === "H" || s === "HIGH") return "high";
   if (s.includes("저") || s.includes("간") || s === "L" || s === "LOW") return "low";
-  if (s === "HGH" || s === "HW" || s === "H") return "high";
-  if (s === "LW" || s === "LWST" || s === "L") return "low";
-  if (s === "1" || s === "01") return "low";
-  if (s === "2" || s === "02") return "high";
+  if (s === "HGH" || s === "HW") return "high";
+  if (s === "LW" || s === "LWST") return "low";
   return "unknown";
+}
+
+function mapHighLowRows(rows) {
+  const events = rows
+    .map((row) => {
+      const time = formatObsTime(getField(row, "tph_time", "predcDt", "predc_dt", "hl_time"));
+      const level = rowLevel(row, "pre");
+      const label = getField(row, "extrSe", "extr_se", "hl_code", "hl_type");
+      if (!time || !Number.isFinite(level)) return null;
+      let type = inferTideType(label);
+      return { time, levelCm: level, type, label, _min: tideTimeToMinutes(time) };
+    })
+    .filter(Boolean);
+
+  if (!events.length) return [];
+
+  const levels = events.map((e) => e.levelCm);
+  const mid = (Math.min(...levels) + Math.max(...levels)) / 2;
+
+  return events.map((e) => {
+    let type = e.type;
+    if (type === "unknown") {
+      type = e.levelCm >= mid ? "high" : "low";
+    }
+    return { time: e.time, levelCm: e.levelCm, type };
+  });
 }
 
 function tideTimeToMinutes(time) {
