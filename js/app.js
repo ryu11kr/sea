@@ -49,6 +49,7 @@ const $ = (sel) => document.querySelector(sel);
 
 function init() {
   if (!document.body.classList.contains("sea-app")) return;
+  document.body.classList.toggle("sea-pc", isPcUa());
   loadState();
   window.dispatchEvent(
     new CustomEvent("sea-points-changed", { detail: { count: seaPoints.length } })
@@ -219,6 +220,10 @@ function isAndroidUa() {
 
 function isIosUa() {
   return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+function isPcUa() {
+  return !isAndroidUa() && !isIosUa();
 }
 
 /** @param {SeaPoint} point */

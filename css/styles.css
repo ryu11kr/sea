@@ -640,6 +640,15 @@ body.sea-link-share-page .sea-wrap {
   box-sizing: border-box;
 }
 
+/* PC(데스크톱 브라우저): 상세 뷰 — 티맵·주소·좌표 복사 UI 숨김 */
+body.sea-pc .detail-nav-note-tmap-only,
+body.sea-pc .detail-nav-facts,
+body.sea-pc #detail-nav-tmap,
+body.sea-pc #detail-nav-copy-search,
+body.sea-pc #detail-nav-copy-coords {
+  display: none !important;
+}
+
 .detail-meta {
   margin: 0 0 1rem;
   color: var(--muted);
