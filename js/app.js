@@ -274,18 +274,6 @@ function kakaoMapHref(point) {
 
 /** @param {SeaPoint} point */
 function renderDetailNav(point) {
-  const searchText = navSearchLabel(point);
-  const addr =
-    point.address?.trim() || "저장된 주소 없음 (좌표로 길찾기를 이용해 주세요)";
-  const coords = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
-
-  const searchEl = $("#detail-nav-search-text");
-  const addrEl = $("#detail-nav-address-text");
-  const coordsEl = $("#detail-nav-coords-text");
-  if (searchEl) searchEl.textContent = searchText;
-  if (addrEl) addrEl.textContent = addr;
-  if (coordsEl) coordsEl.textContent = coords;
-
   const kakao = $("#detail-nav-kakao");
   if (kakao) kakao.href = kakaoMapHref(point);
 }
@@ -316,25 +304,7 @@ async function copyNavText(text, okMsg) {
   }
 }
 
-/** @param {SeaPoint} point */
-function detailAddressForCopy(point) {
-  const addr = String(point.address || "").trim();
-  if (addr) return addr;
-  return `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
-}
-
 function bindDetailNavUi() {
-  $("#detail-nav-copy-search")?.addEventListener("click", () => {
-    const point = getDetailPoint();
-    if (!point) return;
-    copyNavText(detailAddressForCopy(point), "주소를 복사했습니다.");
-  });
-  $("#detail-nav-copy-coords")?.addEventListener("click", () => {
-    const point = getDetailPoint();
-    if (!point) return;
-    const coords = `${Number(point.lat).toFixed(5)}, ${Number(point.lon).toFixed(5)}`;
-    copyNavText(coords, "좌표를 복사했습니다.");
-  });
   $("#detail-nav-tmap")?.addEventListener("click", () => {
     const point = getDetailPoint();
     if (!point) return;

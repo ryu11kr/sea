@@ -596,37 +596,6 @@ body.sea-link-share-page .sea-wrap {
   color: var(--muted);
 }
 
-.detail-nav-facts {
-  margin: 0 0 1rem;
-  padding: 0;
-}
-
-.detail-nav-facts > div {
-  margin: 0 0 0.65rem;
-}
-
-.detail-nav-facts dt {
-  margin: 0 0 0.2rem;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.detail-nav-value {
-  margin: 0;
-  font-size: clamp(1.05rem, 4vw, 1.15rem);
-  line-height: 1.5;
-  font-weight: 700;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
-.detail-nav-mono {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-weight: 600;
-  font-size: 1.02rem;
-}
-
 .detail-nav-actions {
   display: flex;
   flex-direction: column;
@@ -640,12 +609,9 @@ body.sea-link-share-page .sea-wrap {
   box-sizing: border-box;
 }
 
-/* PC(데스크톱 브라우저): 상세 뷰 — 티맵·주소·좌표 복사 UI 숨김 */
+/* PC(데스크톱 브라우저): 상세 뷰 — T map 길찾기 숨김 */
 body.sea-pc .detail-nav-note-tmap-only,
-body.sea-pc .detail-nav-facts,
-body.sea-pc #detail-nav-tmap,
-body.sea-pc #detail-nav-copy-search,
-body.sea-pc #detail-nav-copy-coords {
+body.sea-pc #detail-nav-tmap {
   display: none !important;
 }
 
