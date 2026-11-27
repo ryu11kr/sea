@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     if (hl.items.length) {
       res.status(200).json({
         ...base,
-        items: sanitizeTideItems(hl.items),
+        items: sanitizeTideItems(hl.items, { fromHl: true }),
         source: "data.go.kr/tideFcstHghLw"
       });
       return;
@@ -299,7 +299,8 @@ async function fetchDataGoHighLow(serviceKey, obsCode, date) {
     const items = sanitizeTideItems(
       rows
         .map(normalizeTideRow)
-        .filter((i) => i && (i.type === "high" || i.type === "low"))
+        .filter((i) => i && (i.type === "high" || i.type === "low")),
+      { fromHl: true }
     );
     if (items.length) {
       return { items, apiMessage, resultCode, rowCount, sampleKeys };
@@ -464,8 +465,10 @@ function inferTideType(raw) {
   const s = String(raw || "").toUpperCase();
   if (s.includes("고") || s.includes("만") || s === "H" || s === "HIGH") return "high";
   if (s.includes("저") || s.includes("간") || s === "L" || s === "LOW") return "low";
-  if (s === "1" || s === "HGH" || s === "HW") return "high";
-  if (s === "2" || s === "LW" || s === "LWST") return "low";
+  if (s === "HGH" || s === "HW" || s === "H") return "high";
+  if (s === "LW" || s === "LWST" || s === "L") return "low";
+  if (s === "1" || s === "01") return "low";
+  if (s === "2" || s === "02") return "high";
   return "unknown";
 }
 
@@ -476,7 +479,8 @@ function tideTimeToMinutes(time) {
 }
 
 /** @param {{ time: string, levelCm?: number | null, type: string }[]} items */
-function sanitizeTideItems(items) {
+function sanitizeTideItems(items, opts = {}) {
+  const fromHl = Boolean(opts.fromHl);
   const valid = (items || [])
     .filter((i) => i && (i.type === "high" || i.type === "low"))
     .map((i) => ({
@@ -492,6 +496,10 @@ function sanitizeTideItems(items) {
     .filter((i) => Number.isFinite(i._min));
 
   valid.sort((a, b) => a._min - b._min);
+
+  if (fromHl) {
+    return valid.slice(0, 8).map(({ _min, ...rest }) => rest);
+  }
 
   const out = [];
   const MIN_GAP_MIN = 5 * 60;
